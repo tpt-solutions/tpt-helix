@@ -1,0 +1,14 @@
+[package]
+name = "helix-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+html5ever = "0.39.0"
+lightningcss = "1.0.0-alpha.71"
+markup5ever_rcdom = "0.39.0"
+selectors = "0.39.0"
+helix-wit = { path = "../helix-wit" }
+
+[dev-dependencies]
+helix-wit = { path = "../helix-wit" }

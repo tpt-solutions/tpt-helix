@@ -1,0 +1,10 @@
+[package]
+name = "helix-wit"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Generated WIT bindings for the Helix Runtime capability interfaces (host + guest)."
+
+[dependencies]
+# The `macros` feature provides the `generate!` macro used in `src/lib.rs`.
+wit-bindgen = { version = "0.59", features = ["macros"] }

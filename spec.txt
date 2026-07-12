@@ -1,0 +1,417 @@
+TPT Helix Design Document
+Version 0.1 — Draft
+Date: 2026-07-13
+Author: TPT Solutions
+Status: Draft — Open for Review
+1. Purpose
+TPT Helix is a next-generation web platform built from first principles. It is not a browser — it is the successor to the browser.
+The modern web has become an accidental operating system: bloated, insecure, and economically captured by surveillance capitalism. Thirty years of backward compatibility have turned the web platform into an archaeological dig of accumulated complexity. JavaScript, designed in 10 days for form validation, now underpins the global economy. The browser has become a universal runtime that nobody designed and nobody can replace.
+TPT Helix replaces this. It is:
+A WASM-native application platform that renders web content without a JavaScript engine
+An AI-accelerated migration system that ports existing web applications to native WASM
+A capability-secure runtime where applications declare what they need, not what they can take
+A memory-efficient engine that uses 60–80% less RAM than Chromium for equivalent workloads
+TPT Helix does not compete with Chrome. It obsoletes the architecture that made Chrome necessary.
+2. Goals
+2.1 Primary Goals
+| #  | Goal                               | Success Criteria                                                                                 |
+| -- | ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| G1 | **WASM-Native Runtime**            | Execute web applications compiled to WASM without a JavaScript interpreter in the hot path       |
+| G2 | **AI-Accelerated Migration**       | Port 80% of common web application patterns from JS to Rust/WASM autonomously within 12 months   |
+| G3 | **Capability Security**            | Replace origin-based security with capability-based access control; no ambient authority         |
+| G4 | **Memory Efficiency**              | Achieve ≤150 MB base RAM for a single complex application (e.g., video player, document editor)  |
+| G5 | **Content-Addressed Distribution** | Replace location-based URLs with content-addressed identifiers (IPFS-style) for immutable assets |
+2.2 Secondary Goals
+| #   | Goal                     | Success Criteria                                                                                                 |
+| --- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| G6  | **Legacy Compatibility** | Run existing JavaScript applications via embedded lightweight interpreter (QuickJS/Boa) during transition period |
+| G7  | **Cross-Platform**       | Native builds for Linux, macOS, Windows, Android, iOS, and embedded (Raspberry Pi, ESP32-class where feasible)   |
+| G8  | **Developer Experience** | Provide source-language choice: TypeScript-subset, Rust, or Zig → compile to WASM with WIT interfaces            |
+| G9  | **Offline-First**        | All applications function without network; sync is explicit and user-controlled                                  |
+| G10 | **Open Standard**        | WIT interface definitions and capability protocols are open specifications, not proprietary                      |
+2.3 Non-Goals
+| #   | Non-Goal                                                    | Rationale                                                                                                                            |
+| --- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| NG1 | **Pixel-perfect Chrome compatibility**                      | The web platform spec is 50M+ lines of accumulated complexity. Helix targets a clean subset + migration path, not bug-for-bug parity |
+| NG2 | **Support for `eval`, `document.write`, `with` statements** | These break static analysis and capability tracking. Legacy code using them runs in the JS compatibility layer                       |
+| NG3 | **Surveillance-based monetization**                         | No telemetry, no fingerprinting, no ad-tech integration. Revenue from licensing, support, and enterprise deployment                  |
+| NG4 | **Immediate consumer market dominance**                     | Target enterprise, embedded, and controlled-content ecosystems first. Network effects follow utility                                 |
+3. Architecture Overview
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         APPLICATION LAYER                                    │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │  TPT Lang   │  │    Rust     │  │     Zig     │  │  TypeScript Subset  │  │
+│  │  (source)   │  │  (source)   │  │  (source)   │  │     (source)        │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
+│         │                │                │                    │            │
+│         └────────────────┴────────────────┴────────────────────┘            │
+│                                    │                                        │
+│                              COMPILE TO WASM                                 │
+│                                    │                                        │
+│  ┌─────────────────────────────────┴─────────────────────────────────────┐   │
+│  │                    WASM MODULE + WIT INTERFACE                       │   │
+│  │  (declares: needs network, needs storage, needs camera, etc.)       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         HELIX RUNTIME (Rust)                                 │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    CAPABILITY BROKER                                 │   │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │   │
+│  │  │   Network   │  │   Storage   │  │    DOM      │  │   Media    │ │   │
+│  │  │   (quinn)   │  │  (Keystone) │  │  (taffy)    │  │  (rav1d)   │ │   │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │   │
+│  │                                                                     │   │
+│  │  Permission model: User grants per-capability, per-application        │   │
+│  │  No ambient authority. No cookies. No origin model.               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    WASM EXECUTION ENGINE                             │   │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐   │   │
+│  │  │   wasmtime      │  │   wasmi         │  │   QuickJS/Boa       │   │   │
+│  │  │   (JIT, fast)   │  │   (interpreter) │  │   (legacy JS only)  │   │   │
+│  │  │   ──default──   │  │   ──embedded──  │  │   ──fallback──      │   │   │
+│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    RENDERING PIPELINE                                │   │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │   │
+│  │  │  html5ever  │  │ lightningcss│  │    taffy    │  │    wgpu    │ │   │
+│  │  │  (parser)   │  │  (styles)   │  │  (layout)   │  │  (raster)  │ │   │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │   │
+│  │                                                                     │   │
+│  │  Display list → GPU command buffers → Present                       │   │
+│  │  No DOM tree retained. No CSS cascade. Component-local styling.       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         SYSTEM LAYER                                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────────────┐ │
+│  │   QUIC/UDP  │  │   TLS 1.3   │  │   DHT/IPFS  │  │   Hardware Decode  │ │
+│  │   (quinn)   │  │  (rustls)   │  │   (libp2p)  │  │   (VA-API/Vulkan)  │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
+4. Tech Stack
+4.1 Core Engine (Rust)
+
+| Component              | Crate / Technology  | Purpose                      | Status                 |
+| ---------------------- | ------------------- | ---------------------------- | ---------------------- |
+| **HTML Parsing**       | `html5ever`         | HTML5-compliant parser       | Production-ready       |
+| **CSS Parsing**        | `lightningcss`      | Fast CSS parser, transformer | Production-ready       |
+| **CSS Selectors**      | `selectors` (Servo) | Element-to-rule matching     | Production-ready       |
+| **Layout Engine**      | `taffy`             | Flexbox + CSS Grid           | Production-ready (TPT) |
+| **Text Shaping**       | `cosmic-text`       | Font shaping, line breaking  | Production-ready       |
+| **GPU Rendering**      | `wgpu`              | Cross-platform GPU API       | Production-ready       |
+| **Font Database**      | `fontdb`            | System font enumeration      | Production-ready       |
+| **Image Decoding**     | `image`             | PNG, JPEG, WebP, GIF         | Production-ready       |
+| **SVG Rendering**      | `resvg`             | SVG to raster                | Production-ready       |
+| **Networking**         | `quinn` + `rustls`  | QUIC + TLS 1.3               | Production-ready       |
+| **HTTP Client**        | `reqwest`           | HTTP/1.1, HTTP/2             | Production-ready       |
+| **WASM Runtime**       | `wasmtime`          | JIT-compiled WASM execution  | Production-ready       |
+| **WASM Interpreter**   | `wasmi`             | Embedded, no JIT             | Production-ready       |
+| **Content Addressing** | `libp2p`            | IPFS-style DHT, bitswap      | Production-ready       |
+
+
+
+4.2 Legacy Compatibility
+| Component            | Technology              | Purpose                     | Status           |
+| -------------------- | ----------------------- | --------------------------- | ---------------- |
+| **JS Interpreter**   | `QuickJS` (C, bindings) | Lightweight JS execution    | Production-ready |
+| **Alternative**      | `boa` (Rust)            | Pure-Rust JS engine         | Experimental     |
+| **JS → WASM Bridge** | Custom                  | Expose WIT interfaces to JS | To be built      |
+
+4.3 AI Migration Pipeline
+| Component                  | Technology             | Purpose                       | Status                 |
+| -------------------------- | ---------------------- | ----------------------------- | ---------------------- |
+| **Code Analysis**          | `tree-sitter`          | Parse JS/TS AST               | Production-ready       |
+| **Transformation**         | `jscodeshift` + custom | AST-to-AST transpilation      | Adapt existing         |
+| **Type Inference**         | Custom + `tsc` APIs    | Generate Rust types from JS   | To be built            |
+| **Equivalence Validation** | `proptest` + fuzzing   | Property-based testing        | Production-ready       |
+| **Visual Regression**      | `screenshots` + diff   | UI equivalence checking       | To be built            |
+| **LLM Orchestration**      | TPT Eve                | High-level migration planning | Production-ready (TPT) |
+| **Local Inference**        | TPT Spark              | On-device code generation     | Production-ready (TPT) |
+
+4.4 Build & Tooling
+| Component             | Technology                  | Purpose                       |
+| --------------------- | --------------------------- | ----------------------------- |
+| **Build System**      | `cargo`                     | Rust package management       |
+| **WASM Build**        | `wasm-pack`                 | Rust → WASM compilation       |
+| **WIT Bindings**      | `wit-bindgen`               | Generate host/guest bindings  |
+| **Cross-Compilation** | `cross`                     | Build for multiple targets    |
+| **CI/CD**             | GitHub Actions + TPT Boxcar | Automated testing, deployment |
+
+5. Capability Model
+5.1 Principles
+No ambient authority. A module has no access to anything not explicitly granted.
+User grants, not site requests. The user decides what an application receives, not the application.
+Fine-grained, revocable. Capabilities are per-resource and can be revoked at any time.
+Composable. Capabilities can be delegated between modules.
+5.2 Capability Types (WIT Interfaces)
+// Example WIT interface definitions
+
+interface network {
+    record request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: option<list<u8>>,
+    }
+
+    record response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    fetch: func(req: request) -> result<response, string>
+}
+
+interface storage {
+    get: func(key: string) -> option<list<u8>>
+    set: func(key: string, value: list<u8>) -> result<_, string>
+    delete: func(key: string) -> result<_, string>
+}
+
+interface dom {
+    record element-id {
+        id: u64,
+    }
+
+    create-element: func(tag: string) -> element-id
+    set-text: func(el: element-id, text: string)
+    set-attribute: func(el: element-id, name: string, value: string)
+    append-child: func(parent: element-id, child: element-id)
+    on-click: func(el: element-id, handler-id: u64)
+}
+
+// Authored WIT lives in `crates/helix-wit/wit/helix.wit`. The host
+// (`helix-runtime`) *exports* these interfaces (a guest *imports* them); the
+// package is `helix:runtime@0.1.0`, generating Rust modules under
+// `helix::runtime::{network, storage, dom}`. Errors are surfaced as plain
+// `string`s. Callbacks (`on-click`) cross the boundary as opaque `handler-id`s
+// rather than first-class function values.
+
+    record response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    // Performs an HTTP-flavored request. Fails with `error` when the module
+    // lacks the network capability for `req.url` or the fetch cannot be made.
+    fetch: func(req: request) -> result<response, error>
+}
+
+interface storage {
+    // Shared error type surfaced by capability-checked operations.
+    type error = string
+
+    record key-value {
+        key: string,
+        value: list<u8>,
+    }
+
+    get: func(key: string) -> option<list<u8>>
+    set: func(key: string, value: list<u8>) -> result<_, error>
+    delete: func(key: string) -> result<_, error>
+}
+
+interface dom {
+    record element-id {
+        id: u64,
+    }
+
+    create-element: func(tag: string) -> element-id
+    set-text: func(el: element-id, text: string)
+    set-attribute: func(el: element-id, name: string, value: string)
+    append-child: func(parent: element-id, child: element-id)
+    // Registers the click handler identified by `handler-id`. `handler-id` is
+    // allocated and owned by the guest; the runtime invokes it (via the
+    // capability broker / wasmtime) when the event fires. Modeled as a
+    // guest-managed id rather than a WIT function reference so the host stub
+    // can be exercised without a live guest component.
+    on-click: func(el: element-id, handler-id: u64)
+}
+
+// Two worlds wrap the interfaces above (see `wit/helix.wit`):
+//   * world `helix`        — the guest world; guests *import* the interfaces.
+//   * world `helix-host`   — the host world; the Helix Runtime *exports* them
+//                            (generating the `Guest` traits the host fills in).
+
+interface media {
+    record video-config {
+        codec: string,  // "h264", "vp9", "av1"
+        width: u32,
+        height: u32,
+        bitrate: u32,
+    }
+
+    create-player: func(config: video-config) -> result<player-handle, error>
+    play: func(handle: player-handle)
+    pause: func(handle: player-handle)
+    seek: func(handle: player-handle, time-ms: u64)
+}
+5.3 Grant Flow
+User opens application
+    │
+    ▼
+Application declares required capabilities:
+    "I need network:fetch to api.example.com"
+    "I need storage:local (10MB)"
+    "I need dom:full"
+    "I need media:video (720p max)"
+    │
+    ▼
+Helix Runtime presents grant request to user
+    │
+    ▼
+User approves/denies/modifies each capability
+    │
+    ▼
+Runtime creates restricted handles, passes to WASM module
+    │
+    ▼
+Module operates within granted capabilities only
+Any attempt to exceed → trap/abort
+
+6. Migration Pipeline (AI-Accelerated)
+6.1 Stages
+Table
+Stage	Input	Output	AI Role	Human Role
+S1: Discovery	Git repo, package.json, webpack config	Dependency graph, API surface map, risk assessment	Crawl codebase, identify frameworks, flag unportable features	Review risk assessment
+S2: Transpile	JS/TS source files	Rust source files + WIT interfaces	Type inference, memory model mapping, async transformation	Review critical paths
+S3: Validate	Original JS app + ported Rust app	Equivalence report, coverage metrics	Generate property tests, fuzz inputs, screenshot diff	Review failures
+S4: Optimize	Working Rust app	Optimized Rust app (memory layout, parallelization)	Identify dead code, suggest struct packing, parallelize loops	Review optimizations
+S5: Deploy	Optimized Rust app	WASM module in Helix Runtime	Generate deployment config, feature flags	Approve rollout
+6.2 Supported Patterns (Priority Order)
+Table
+Priority	Pattern	Example	Complexity
+P1	Static content sites	Blogs, documentation, marketing pages	Low
+P2	Form-based applications	CRUD apps, dashboards, admin panels	Low-Medium
+P3	Data visualization	Charts, graphs, real-time metrics	Medium
+P4	Media players	Video streaming, audio players	Medium-High
+P5	Real-time collaboration	Editors, whiteboards, chat	High
+P6	Complex SPAs	Gmail, Figma-class applications	Very High
+7. Performance Targets
+7.1 Memory
+Table
+Scenario	Chrome (Baseline)	Helix Target	Method
+Static blog post	400 MB	≤40 MB	No JS engine, static render
+Document editor (WASM-native)	800 MB	≤150 MB	No V8, no DOM tree
+Video player (720p)	600 MB	≤200 MB	Hardware decode, no JS media pipeline
+10 tabs (mixed content)	2–4 GB	≤500 MB	Process-per-tab replaced with WASM sandbox
+7.2 Startup
+Table
+Metric	Chrome	Helix Target
+Cold start to first paint	2–5s	≤500ms
+Warm start to first paint	1–2s	≤200ms
+WASM module load	N/A	≤50ms
+7.3 Throughput
+Table
+Metric	Target
+Layout operations/sec	≥60fps for 1000-element tree
+WASM execution	Within 10% of native Rust
+Network throughput	Saturate 1Gbps link
+8. Security Model
+8.1 Threats Addressed
+| Threat              | Traditional Web            | Helix                                           |
+| ------------------- | -------------------------- | ----------------------------------------------- |
+| XSS                 | CSP, sanitization          | No JS injection vector; WASM is typed           |
+| CSRF                | SameSite cookies, tokens   | No ambient authority; capabilities are explicit |
+| Prototype pollution | Object.freeze, linting     | No prototype chain in WASM                      |
+| Memory corruption   | ASLR, sandbox              | Rust + WASM memory safety                       |
+| Spectre/Meltdown    | Site isolation (processes) | Capability isolation (cheaper, finer-grained)   |
+| Supply chain        | npm audit, SRI             | Content-addressed dependencies                  |
+
+8.2 Sandboxing
+┌─────────────────────────────────────────┐
+│  WASM Module (untrusted)                │
+│  ┌─────────────────────────────────┐    │
+│  │  Linear memory (isolated)       │    │
+│  │  No pointers outside this region │   │
+│  └─────────────────────────────────┘    │
+│  ┌─────────────────────────────────┐    │
+│  │  Host function imports only     │    │
+│  │  (via WIT interfaces)           │    │
+│  └─────────────────────────────────┘    │
+└─────────────────────────────────────────┘
+            │
+            ▼ (capability-checked)
+┌─────────────────────────────────────────┐
+│  Helix Runtime (trusted)              │
+│  Enforces capability grants             │
+│  No direct system access                │
+└─────────────────────────────────────────┘
+
+9. Roadmap
+Phase 0: Foundation (Months 1–3)
+[ ] Helix Runtime v0.1: Static renderer + QuickJS fallback
+[ ] WIT interface definitions for DOM, network, storage
+[ ] AppFront integration (egui + taffy rendering)
+[ ] Basic WASM module loading (wasmtime)
+[ ] Single-platform build (Linux x86_64)
+Phase 1: Core (Months 4–6)
+[ ] Capability broker implementation
+[ ] Content-addressed distribution (libp2p integration)
+[ ] Media pipeline (hardware decode + DASH streaming)
+[ ] Cross-platform builds (macOS, Windows)
+[ ] AI migration agent v0.1: JS → TS → Rust for static sites
+Phase 2: Migration (Months 7–12)
+[ ] AI migration agent v1.0: 80% pattern coverage
+[ ] First production TPT app migration (internal dogfood)
+[ ] Legacy JS compatibility layer optimization
+[ ] Developer tooling: IDE plugins, debugger, profiler
+[ ] Embedded targets (Raspberry Pi, ARM64)
+Phase 3: Ecosystem (Months 13–24)
+[ ] Third-party app migrations (partners)
+[ ] Component marketplace (reusable WASM modules)
+[ ] Enterprise deployment (on-premise, air-gapped)
+[ ] Mobile builds (Android, iOS)
+[ ] Specification publication (WIT standards)
+Phase 4: Displacement (Months 25–36)
+[ ] Consumer release
+[ ] Major site partnerships (demonstrate viability)
+[ ] JS compatibility layer deprecation path
+[ ] Hardware integration (smart TVs, automotive, IoT)
+10. Open Questions
+Table
+#	Question	Impact	Proposed Resolution
+Q1	How to handle eval and dynamic code generation in legacy apps?	Blocks some migrations	Sandboxed QuickJS interpreter for dynamic code only
+Q2	What is the minimum viable CSS subset for 90% of sites?	Determines layout engine scope	Survey top 10k sites, measure property usage
+Q3	How to migrate React/Vue component ecosystems?	Determines developer adoption	Build AppFront equivalents for top 50 components
+Q4	What is the DRM story for premium video?	Blocks Netflix/Spotify class apps	EME-compatible CDM interface, or native app fallback
+Q5	How to handle browser extensions (ad blockers, password managers)?	User adoption	WASM-native extension API with capability restrictions
+Q6	What is the governance model for WIT standards?	Ecosystem trust	Open specification under Apache 2.0, TPT maintains reference implementation
+11. Glossary
+Table
+Term	Definition
+WASM	WebAssembly — binary instruction format, sandboxed, portable
+WIT	WebAssembly Interface Types — typed interfaces between WASM modules and hosts
+WASI	WebAssembly System Interface — POSIX-like APIs for WASM
+Capability	Unforgeable token granting access to a specific resource
+Ambient Authority	Implicit access to resources based on identity (e.g., origin) rather than explicit grant
+Content-Addressed	Identifying data by its cryptographic hash, not its network location
+DASH	Dynamic Adaptive Streaming over HTTP — video streaming protocol
+CDM	Content Decryption Module — DRM component for protected media
+EME	Encrypted Media Extensions — browser API for DRM
+AOT	Ahead-of-Time compilation — compile before execution
+JIT	Just-in-Time compilation — compile during execution
+12. References
+WebAssembly Specification
+WIT Component Model
+Capability-Based Security
+IPFS Content Addressing
+Servo Browser Engine
+TPT AppFront — Cross-platform UI framework
+TPT Eve — Cognitive architecture for AI orchestration
+TPT Spark — Local LLM inference
+TPT Boxcar — DevOps toolchain
+
+This document is a living specification. All components, timelines, and targets are subject to revision based on implementation feedback and ecosystem evolution.

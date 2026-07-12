@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/helix-runtime",
+    "crates/helix-wit",
+    "crates/helix-guest-example",
+]
+
+# The guest example only builds for `wasm32-unknown-unknown` (its bindings
+# reference wasm imports), so exclude it from the default host build.
+default-members = [
+    "crates/helix-runtime",
+    "crates/helix-wit",
+]

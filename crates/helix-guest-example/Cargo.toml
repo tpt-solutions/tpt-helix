@@ -1,0 +1,9 @@
+[package]
+name = "helix-guest-example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+wit-bindgen = { version = "0.41", features = ["realloc"] }
+wit-bindgen-rt = "0.41"
