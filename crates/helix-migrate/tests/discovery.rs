@@ -4,7 +4,7 @@
 //! same [`helix_migrate::ApiSurfaceMap`] contract as the dependency-free
 //! tokenizer ([`helix_migrate::discover`]); these tests pin that down.
 
-use helix_migrate::{discover, discover_js, discover_ts, ApiSurfaceMap, SourceLang};
+use helix_migrate::{ApiSurfaceMap, SourceLang, discover, discover_js, discover_ts};
 
 const SAMPLE: &str = r#"
     // a comment with import inside should be ignored
@@ -57,7 +57,10 @@ fn ast_is_robust_to_strings_containing_import_keywords() {
         export function real() {}
     "#;
     let map = discover_js(src);
-    assert!(map.imports.is_empty(), "string literal must not yield imports");
+    assert!(
+        map.imports.is_empty(),
+        "string literal must not yield imports"
+    );
     assert_eq!(map.exports.len(), 1);
     assert_eq!(map.exports[0].name, "real");
 }

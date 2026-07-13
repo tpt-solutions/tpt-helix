@@ -3,8 +3,8 @@
 //! These tests run the layout + render pipeline without a window, asserting
 //! that parsed HTML/CSS produces the expected `taffy` layout and render items.
 
-use appfront::render::RenderItem;
 use appfront::HelixDocument;
+use appfront::render::RenderItem;
 
 fn rects(items: &[RenderItem]) -> impl Iterator<Item = &appfront::render::RectItem> {
     items.iter().filter_map(|i| match i {
@@ -44,7 +44,9 @@ fn stylesheet_rules_apply_to_matching_elements() {
            <div class="card" style="width:50px; height:20px;"></div>"#,
     );
     let items = doc.render(800.0, 600.0);
-    let cards = rects(&items).filter(|r| r.fill == [0x12, 0x34, 0x56, 255]).count();
+    let cards = rects(&items)
+        .filter(|r| r.fill == [0x12, 0x34, 0x56, 255])
+        .count();
     assert_eq!(cards, 1, "stylesheet .card rule should color the div");
 }
 

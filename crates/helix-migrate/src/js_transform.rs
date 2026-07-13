@@ -36,7 +36,10 @@ pub struct Transformer<'a> {
 
 impl<'a> Transformer<'a> {
     pub fn new(source: &'a str) -> Self {
-        Transformer { source, edits: Vec::new() }
+        Transformer {
+            source,
+            edits: Vec::new(),
+        }
     }
 
     /// Replace the exact source span covered by `node`.
@@ -190,25 +193,37 @@ mod tests {
     #[test]
     fn function_keyword_becomes_fn() {
         let src = "function add(a, b) { return a + b; }";
-        assert_eq!(transpile_js_to_rust(src, SourceLang::JavaScript), "fn add(a, b) { return a + b; }");
+        assert_eq!(
+            transpile_js_to_rust(src, SourceLang::JavaScript),
+            "fn add(a, b) { return a + b; }"
+        );
     }
 
     #[test]
     fn const_becomes_let() {
         let src = "const x = 1;";
-        assert_eq!(transpile_js_to_rust(src, SourceLang::JavaScript), "let x = 1;");
+        assert_eq!(
+            transpile_js_to_rust(src, SourceLang::JavaScript),
+            "let x = 1;"
+        );
     }
 
     #[test]
     fn var_becomes_let() {
         let src = "var y = 2;";
-        assert_eq!(transpile_js_to_rust(src, SourceLang::JavaScript), "let y = 2;");
+        assert_eq!(
+            transpile_js_to_rust(src, SourceLang::JavaScript),
+            "let y = 2;"
+        );
     }
 
     #[test]
     fn console_log_becomes_println() {
         let src = "console.log(x);";
-        assert_eq!(transpile_js_to_rust(src, SourceLang::JavaScript), "println!(x);");
+        assert_eq!(
+            transpile_js_to_rust(src, SourceLang::JavaScript),
+            "println!(x);"
+        );
     }
 
     #[test]

@@ -64,7 +64,9 @@ impl ContentStore {
     /// Store `bytes`, returning their content id. Idempotent.
     pub fn put(&mut self, bytes: &[u8]) -> ContentId {
         let id = digest(bytes);
-        self.blocks.entry(id.clone()).or_insert_with(|| bytes.to_vec());
+        self.blocks
+            .entry(id.clone())
+            .or_insert_with(|| bytes.to_vec());
         id
     }
 
@@ -141,7 +143,8 @@ impl AssetRegistry {
 
     /// Resolve a URL to its bytes, integrity-checked against the stored id.
     pub fn fetch(&self, url: &str) -> Option<Vec<u8>> {
-        self.resolve(url).and_then(|id| self.store.get_verified(&id))
+        self.resolve(url)
+            .and_then(|id| self.store.get_verified(&id))
     }
 
     /// Number of distinct location URLs registered.
@@ -193,9 +196,7 @@ mod tests {
     #[test]
     fn get_verified_returns_none_for_missing() {
         let store = ContentStore::new();
-        assert!(store
-            .get_verified(&digest(b"never stored"))
-            .is_none());
+        assert!(store.get_verified(&digest(b"never stored")).is_none());
     }
 
     #[test]

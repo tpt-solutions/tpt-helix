@@ -40,7 +40,11 @@ pub enum DomOp {
     /// `dom::set_text(<var>, &"<text>");`
     Text { var: String, text: String },
     /// `dom::set_attribute(<var>, &"<name>", &"<value>");`
-    Attr { var: String, name: String, value: String },
+    Attr {
+        var: String,
+        name: String,
+        value: String,
+    },
     /// `dom::append_child(<parent>, <child>);`
     Append { parent: String, child: String },
     /// `dom::on_click(<var>, <handler>);`
@@ -159,7 +163,15 @@ fn parse_element(chars: &[char], start: usize) -> (Element, usize, bool) {
             }
         }
     }
-    (Element { tag, attrs, children: Vec::new() }, pos, self_close)
+    (
+        Element {
+            tag,
+            attrs,
+            children: Vec::new(),
+        },
+        pos,
+        self_close,
+    )
 }
 
 fn read_tag_name(chars: &[char], start: usize) -> (String, usize) {
@@ -168,7 +180,8 @@ fn read_tag_name(chars: &[char], start: usize) -> (String, usize) {
         pos += 1;
     }
     let begin = pos;
-    while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '>' && chars[pos] != '/' {
+    while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '>' && chars[pos] != '/'
+    {
         pos += 1;
     }
     (chars[begin..pos].iter().collect(), pos)
@@ -177,7 +190,12 @@ fn read_tag_name(chars: &[char], start: usize) -> (String, usize) {
 fn read_attr(chars: &[char], start: usize) -> (String, String, usize) {
     let begin = start;
     let mut pos = start;
-    while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '=' && chars[pos] != '>' && chars[pos] != '/' {
+    while pos < chars.len()
+        && !chars[pos].is_whitespace()
+        && chars[pos] != '='
+        && chars[pos] != '>'
+        && chars[pos] != '/'
+    {
         pos += 1;
     }
     let name: String = chars[begin..pos].iter().collect();
@@ -205,7 +223,11 @@ fn read_attr(chars: &[char], start: usize) -> (String, String, usize) {
         } else {
             // Unquoted value.
             let vbegin = pos;
-            while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '>' && chars[pos] != '/' {
+            while pos < chars.len()
+                && !chars[pos].is_whitespace()
+                && chars[pos] != '>'
+                && chars[pos] != '/'
+            {
                 pos += 1;
             }
             value = chars[vbegin..pos].iter().collect();
@@ -372,11 +394,17 @@ impl Emitter {
     fn generate_rust(&self) -> String {
         let mut s = String::new();
         s.push_str("wit_bindgen::generate!({\n    world: \"helix-guest\",\n    path: \"../helix-wit/wit\",\n});\n\n");
-        s.push_str("#[unsafe(no_mangle)]\npub extern \"C\" fn run() {\n    use helix::runtime::dom;\n");
+        s.push_str(
+            "#[unsafe(no_mangle)]\npub extern \"C\" fn run() {\n    use helix::runtime::dom;\n",
+        );
         for op in &self.ops {
             match op {
                 DomOp::Create { var, tag } => {
-                    let _ = writeln!(s, "    let {var} = dom::create_element(&\"{}\");", rust_escape(tag));
+                    let _ = writeln!(
+                        s,
+                        "    let {var} = dom::create_element(&\"{}\");",
+                        rust_escape(tag)
+                    );
                 }
                 DomOp::Text { var, text } => {
                     let _ = writeln!(s, "    dom::set_text({var}, &\"{}\");", rust_escape(text));
@@ -405,7 +433,10 @@ impl Emitter {
 /// Transpile a static HTML document into a Helix guest component.
 pub fn transpile_static_site(html: &str) -> TranspiledSite {
     let nodes = parse_html(html);
-    let mut emitter = Emitter { ops: Vec::new(), counter: 0 };
+    let mut emitter = Emitter {
+        ops: Vec::new(),
+        counter: 0,
+    };
     emitter.emit(&nodes, None);
     let ops = emitter.ops.clone();
     let rust_source = emitter.generate_rust();
@@ -452,8 +483,16 @@ mod tests {
         let site = transpile_static_site(html);
         let (elements, texts) = count_nodes(&parse_html(html));
         // Each element yields one Create; mixed-content text runs add a span.
-        let creates = site.ops.iter().filter(|o| matches!(o, DomOp::Create { .. })).count();
-        let set_texts = site.ops.iter().filter(|o| matches!(o, DomOp::Text { .. })).count();
+        let creates = site
+            .ops
+            .iter()
+            .filter(|o| matches!(o, DomOp::Create { .. }))
+            .count();
+        let set_texts = site
+            .ops
+            .iter()
+            .filter(|o| matches!(o, DomOp::Text { .. }))
+            .count();
         assert!(creates >= elements, "every element must be created");
         // Every text run maps to exactly one set_text (on element or span).
         assert_eq!(set_texts, texts, "text runs must be preserved 1:1");
@@ -464,7 +503,10 @@ mod tests {
                 created.insert(var.clone());
             }
             if let DomOp::Append { parent, child } = op {
-                assert!(created.contains(parent), "append references undefined parent");
+                assert!(
+                    created.contains(parent),
+                    "append references undefined parent"
+                );
                 assert!(created.contains(child), "append references undefined child");
             }
         }
@@ -476,7 +518,10 @@ mod tests {
         assert!(site.rust_source.contains("wit_bindgen::generate!"));
         assert!(site.rust_source.contains("pub extern \"C\" fn run()"));
         assert!(site.rust_source.contains("dom::create_element(&\"div\")"));
-        assert!(site.rust_source.contains("dom::set_attribute(el0, &\"class\", &\"a\")"));
+        assert!(
+            site.rust_source
+                .contains("dom::set_attribute(el0, &\"class\", &\"a\")")
+        );
         assert!(site.rust_source.contains("dom::append_child(el0, el1)"));
         assert!(site.wit_world.contains("export run: func()"));
     }

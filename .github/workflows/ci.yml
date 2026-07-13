@@ -43,6 +43,31 @@ jobs:
       - name: Test
         run: cargo test
 
+  # Cross-platform lint gate (Testing & QA, CI coverage): clippy with warnings
+  # denied and a rustfmt check, so style/quality regressions fail CI. Runs on
+  # the default workspace members (the core runtime + broker + WIT bindings +
+  # migration agent) — `appfront` (GPU/display) and `helix-guest-example`
+  # (wasm32-only) are excluded, mirroring the `cargo test` matrix above.
+  lint:
+    name: lint (clippy + rustfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+
   wasm-guest:
     name: build wasm guest
     runs-on: ubuntu-latest

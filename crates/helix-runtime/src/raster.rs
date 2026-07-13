@@ -23,7 +23,11 @@ pub fn decode_raster(bytes: &[u8]) -> Result<DecodedImage, ImageError> {
 
 fn to_decoded(image: DynamicImage) -> Result<DecodedImage, ImageError> {
     let rgba = image.to_rgba8();
-    Ok(DecodedImage { width: rgba.width(), height: rgba.height(), rgba8: rgba.into_raw() })
+    Ok(DecodedImage {
+        width: rgba.width(),
+        height: rgba.height(),
+        rgba8: rgba.into_raw(),
+    })
 }
 
 /// Parses and rasterizes an SVG document to RGBA8 at exactly
@@ -39,7 +43,11 @@ pub fn rasterize_svg(svg_text: &str, width: u32, height: u32) -> Option<DecodedI
     );
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 
-    Some(DecodedImage { width, height, rgba8: pixmap.take() })
+    Some(DecodedImage {
+        width,
+        height,
+        rgba8: pixmap.take(),
+    })
 }
 
 #[cfg(test)]
@@ -54,7 +62,10 @@ mod tests {
         {
             let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
             image::DynamicImage::ImageRgba8(img)
-                .write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+                .write_to(
+                    &mut std::io::Cursor::new(&mut png_bytes),
+                    image::ImageFormat::Png,
+                )
                 .unwrap();
         }
 

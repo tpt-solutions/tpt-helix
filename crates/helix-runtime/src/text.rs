@@ -46,7 +46,11 @@ pub fn shape_text(
             glyphs: run
                 .glyphs
                 .iter()
-                .map(|g| ShapedGlyph { glyph_id: g.glyph_id, x: g.x, y: g.y })
+                .map(|g| ShapedGlyph {
+                    glyph_id: g.glyph_id,
+                    x: g.x,
+                    y: g.y,
+                })
                 .collect(),
         })
         .collect()
@@ -74,7 +78,10 @@ mod tests {
             20.0,
             60.0,
         );
-        assert!(lines.len() > 1, "expected wrapping to produce multiple lines");
+        assert!(
+            lines.len() > 1,
+            "expected wrapping to produce multiple lines"
+        );
     }
 
     #[test]
@@ -99,7 +106,10 @@ mod tests {
         );
         let short_glyphs: usize = short.iter().map(|l| l.glyphs.len()).sum();
         let long_glyphs: usize = long.iter().map(|l| l.glyphs.len()).sum();
-        assert!(long_glyphs > short_glyphs, "more text should yield more glyphs");
+        assert!(
+            long_glyphs > short_glyphs,
+            "more text should yield more glyphs"
+        );
     }
 
     #[test]

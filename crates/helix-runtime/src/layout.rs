@@ -9,7 +9,7 @@ use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use taffy::prelude::{auto, length, percent};
 use taffy::{AvailableSpace, Dimension, Display, NodeId, Size, Style, TaffyTree};
 
-use crate::css::{matches, DomElement, StyleRule};
+use crate::css::{DomElement, StyleRule, matches};
 
 /// The result of laying out a parsed HTML document: a `taffy` tree plus a
 /// map from each DOM element to its `taffy` node, so callers can look up
@@ -190,7 +190,10 @@ mod tests {
                     return Some(node);
                 }
             }
-            tree.children(node).ok()?.into_iter().find_map(|c| find(tree, c, target))
+            tree.children(node)
+                .ok()?
+                .into_iter()
+                .find_map(|c| find(tree, c, target))
         }
 
         let half = find(&layout.tree, layout.root, "half").expect("half node");
@@ -217,7 +220,10 @@ mod tests {
                     return Some(node);
                 }
             }
-            tree.children(node).ok()?.into_iter().find_map(|c| find(tree, c, target))
+            tree.children(node)
+                .ok()?
+                .into_iter()
+                .find_map(|c| find(tree, c, target))
         }
 
         let box_ = find(&layout.tree, layout.root, "box").expect("box node");
@@ -247,7 +253,10 @@ mod tests {
                     return Some(node);
                 }
             }
-            tree.children(node).ok()?.into_iter().find_map(|c| find(tree, c, target))
+            tree.children(node)
+                .ok()?
+                .into_iter()
+                .find_map(|c| find(tree, c, target))
         }
 
         let grid = find(&layout.tree, layout.root, "grid").expect("grid node");

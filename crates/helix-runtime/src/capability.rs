@@ -236,7 +236,12 @@ impl CapabilityBroker {
         CapabilityToken(((hi as u128) << 64) | lo as u128)
     }
 
-    fn issue(&mut self, app: AppId, capability: Capability, parent: Option<GrantId>) -> (GrantId, CapabilityToken) {
+    fn issue(
+        &mut self,
+        app: AppId,
+        capability: Capability,
+        parent: Option<GrantId>,
+    ) -> (GrantId, CapabilityToken) {
         let id = GrantId(self.next_grant);
         self.next_grant += 1;
         let grant = Grant {
@@ -347,12 +352,16 @@ impl CapabilityBroker {
                 reason: "parent grant revoked".into(),
             });
         }
-        let scoped = intersect(&parent.capability, &child).ok_or_else(|| CapabilityError::Denied {
-            app: to_app.clone(),
-            capability: child,
-        })?;
+        let scoped =
+            intersect(&parent.capability, &child).ok_or_else(|| CapabilityError::Denied {
+                app: to_app.clone(),
+                capability: child,
+            })?;
         let (child_id, child_token) = self.issue(to_app, scoped, Some(parent_id));
-        self.delegations.entry(parent_id).or_default().push(child_id);
+        self.delegations
+            .entry(parent_id)
+            .or_default()
+            .push(child_id);
         Ok(child_token)
     }
 
@@ -451,7 +460,9 @@ fn pattern_covers(g: &HostPattern, p: &HostPattern) -> bool {
             let ps = ps.trim_start_matches('.').to_ascii_lowercase();
             ps == gs || ps.ends_with(&format!(".{gs}"))
         }
-        (HostPattern::Suffix(gs), HostPattern::Exact(pe)) => HostPattern::Suffix(gs.clone()).matches(pe),
+        (HostPattern::Suffix(gs), HostPattern::Exact(pe)) => {
+            HostPattern::Suffix(gs.clone()).matches(pe)
+        }
         _ => false,
     }
 }
@@ -500,7 +511,9 @@ fn intersect(parent: &Capability, child: &Capability) -> Option<Capability> {
                 (Some(a), Some(b)) => Some((a.0.min(b.0), a.1.min(b.1))),
                 _ => pm.or(*rm),
             };
-            Some(Capability::Media { max_resolution: max })
+            Some(Capability::Media {
+                max_resolution: max,
+            })
         }
         _ => None,
     }
@@ -523,7 +536,10 @@ mod tests {
 
     fn network(hosts: &[&str]) -> Capability {
         Capability::Network {
-            hosts: hosts.iter().map(|h| HostPattern::Exact(h.to_string())).collect(),
+            hosts: hosts
+                .iter()
+                .map(|h| HostPattern::Exact(h.to_string()))
+                .collect(),
         }
     }
 
@@ -573,9 +589,12 @@ mod tests {
     fn revoke_app_cascades() {
         let mut b = CapabilityBroker::new();
         b.grant("app".into(), network(&["api.example.com"]));
-        b.grant("app".into(), Capability::Storage {
-            scope: StorageScope::Global,
-        });
+        b.grant(
+            "app".into(),
+            Capability::Storage {
+                scope: StorageScope::Global,
+            },
+        );
         assert_eq!(b.revoke_app(&"app".into()), 2);
         assert!(b.list_grants(&"app".into()).is_empty());
     }
@@ -590,15 +609,14 @@ mod tests {
             },
         );
         let child = b
-            .delegate(
-                parent,
-                "child".into(),
-                network(&["api.example.com"]),
-            )
+            .delegate(parent, "child".into(), network(&["api.example.com"]))
             .unwrap();
         assert!(b.check(child, &network(&["api.example.com"])).is_ok());
         // child cannot exceed parent scope
-        assert!(b.delegate(parent, "child".into(), network(&["other.test"])).is_err());
+        assert!(
+            b.delegate(parent, "child".into(), network(&["other.test"]))
+                .is_err()
+        );
 
         // revoking the parent revokes the child
         let pid = b.resolve(parent).unwrap();
@@ -618,22 +636,24 @@ mod tests {
                 scope: StorageScope::Namespace("app:notes:".into()),
             },
         );
-        assert!(b
-            .check(
+        assert!(
+            b.check(
                 tok,
                 &Capability::Storage {
                     scope: StorageScope::Namespace("app:notes:2024".into())
                 }
             )
-            .is_ok());
-        assert!(b
-            .check(
+            .is_ok()
+        );
+        assert!(
+            b.check(
                 tok,
                 &Capability::Storage {
                     scope: StorageScope::Namespace("other:".into())
                 }
             )
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]
@@ -645,35 +665,45 @@ mod tests {
                 max_resolution: Some((1280, 720)),
             },
         );
-        assert!(b
-            .check(
+        assert!(
+            b.check(
                 tok,
                 &Capability::Media {
                     max_resolution: Some((640, 480))
                 }
             )
-            .is_ok());
-        assert!(b
-            .check(
+            .is_ok()
+        );
+        assert!(
+            b.check(
                 tok,
                 &Capability::Media {
                     max_resolution: Some((1920, 1080))
                 }
             )
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]
     fn prompt_flow_allows_and_denies() {
         let mut b = CapabilityBroker::new();
         let tok = b
-            .request_capability(&"app".into(), network(&["api.example.com"]), &AllowAllPrompter)
+            .request_capability(
+                &"app".into(),
+                network(&["api.example.com"]),
+                &AllowAllPrompter,
+            )
             .unwrap();
         assert!(b.check(tok, &network(&["api.example.com"])).is_ok());
 
         let mut b2 = CapabilityBroker::new();
         let err = b2
-            .request_capability(&"app".into(), network(&["api.example.com"]), &DenyAllPrompter)
+            .request_capability(
+                &"app".into(),
+                network(&["api.example.com"]),
+                &DenyAllPrompter,
+            )
             .unwrap_err();
         assert!(matches!(err, CapabilityError::Denied { .. }));
     }
@@ -698,27 +728,32 @@ mod tests {
                 &Narrow,
             )
             .unwrap();
-        assert!(b
-            .check(
+        assert!(
+            b.check(
                 tok,
                 &Capability::Storage {
                     scope: StorageScope::Namespace("app:x".into())
                 }
             )
-            .is_ok());
-        assert!(b
-            .check(
+            .is_ok()
+        );
+        assert!(
+            b.check(
                 tok,
                 &Capability::Storage {
                     scope: StorageScope::Global
                 }
             )
-            .is_err());
+            .is_err()
+        );
     }
 
     #[test]
     fn host_of_parses_urls() {
-        assert_eq!(host_of("https://api.example.com/path?q=1"), "api.example.com");
+        assert_eq!(
+            host_of("https://api.example.com/path?q=1"),
+            "api.example.com"
+        );
         assert_eq!(host_of("http://cdn.example.com"), "cdn.example.com");
         assert_eq!(host_of("api.example.com"), "api.example.com");
     }

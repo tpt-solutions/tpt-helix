@@ -6,11 +6,11 @@
 //! generated host-side `Guest` trait methods directly.
 
 use helix_runtime::stub::RuntimeStub;
+use helix_wit::host::exports::helix::runtime::media::VideoConfig;
+use helix_wit::host::exports::helix::runtime::network::{Request, Response};
 use helix_wit::host::exports::helix::runtime::{
     dom::Guest as _, media::Guest as _, network::Guest as _, storage::Guest as _,
 };
-use helix_wit::host::exports::helix::runtime::media::VideoConfig;
-use helix_wit::host::exports::helix::runtime::network::{Request, Response};
 
 fn req(url: &str) -> Request {
     Request {
@@ -56,7 +56,10 @@ fn storage_roundtrip_set_get_delete() {
     assert!(RuntimeStub::get("k".to_string()).is_none());
 
     RuntimeStub::set("k".to_string(), b"v".to_vec()).expect("set ok");
-    assert_eq!(RuntimeStub::get("k".to_string()).as_deref(), Some(&b"v"[..]));
+    assert_eq!(
+        RuntimeStub::get("k".to_string()).as_deref(),
+        Some(&b"v"[..])
+    );
 
     RuntimeStub::delete("k".to_string()).expect("delete ok");
     assert!(RuntimeStub::get("k".to_string()).is_none());
@@ -89,7 +92,10 @@ fn dom_set_text_and_attribute() {
 
     let node = stub.element(el).unwrap();
     assert_eq!(node.text, "hi");
-    assert_eq!(node.attributes.get("class").map(String::as_str), Some("lead"));
+    assert_eq!(
+        node.attributes.get("class").map(String::as_str),
+        Some("lead")
+    );
 }
 
 #[test]

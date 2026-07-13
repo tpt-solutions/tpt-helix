@@ -79,7 +79,10 @@ fn walk(node: Node, src: &[u8], map: &mut ApiSurfaceMap) {
             return;
         }
         "function_declaration" | "generator_function_declaration" => {
-            if let Some(name) = node.child_by_field_name("name").and_then(|n| n.utf8_text(src).ok()) {
+            if let Some(name) = node
+                .child_by_field_name("name")
+                .and_then(|n| n.utf8_text(src).ok())
+            {
                 map.functions.push(name.to_string());
             }
         }
@@ -181,7 +184,10 @@ fn handle_export(node: Node, src: &[u8], map: &mut ApiSurfaceMap) {
     if let Some(decl) = node.child_by_field_name("declaration") {
         match decl.kind() {
             "function_declaration" | "generator_function_declaration" => {
-                if let Some(name) = decl.child_by_field_name("name").and_then(|n| n.utf8_text(src).ok()) {
+                if let Some(name) = decl
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(src).ok())
+                {
                     map.exports.push(Export {
                         kind: ExportKind::Function,
                         name: name.to_string(),
@@ -189,7 +195,10 @@ fn handle_export(node: Node, src: &[u8], map: &mut ApiSurfaceMap) {
                 }
             }
             "class_declaration" => {
-                if let Some(name) = decl.child_by_field_name("name").and_then(|n| n.utf8_text(src).ok()) {
+                if let Some(name) = decl
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(src).ok())
+                {
                     map.exports.push(Export {
                         kind: ExportKind::Class,
                         name: name.to_string(),
@@ -200,7 +209,10 @@ fn handle_export(node: Node, src: &[u8], map: &mut ApiSurfaceMap) {
                 let mut cursor = decl.walk();
                 for declarator in decl.named_children(&mut cursor) {
                     if declarator.kind() == "variable_declarator" {
-                        if let Some(name) = declarator.child_by_field_name("name").and_then(|n| n.utf8_text(src).ok()) {
+                        if let Some(name) = declarator
+                            .child_by_field_name("name")
+                            .and_then(|n| n.utf8_text(src).ok())
+                        {
                             map.exports.push(Export {
                                 kind: ExportKind::Const,
                                 name: name.to_string(),

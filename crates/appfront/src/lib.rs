@@ -23,4 +23,4 @@ pub mod render;
 pub mod egui_surface;
 
 pub use layout::HelixDocument;
-pub use render::{RenderItem, RectItem, TextItem};
+pub use render::{RectItem, RenderItem, TextItem};

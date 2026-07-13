@@ -59,11 +59,9 @@ impl GpuContext {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))?;
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor::default(),
-            None,
-        ))
-        .ok()?;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+                .ok()?;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("display-list shader"),
@@ -118,13 +116,16 @@ impl GpuContext {
             cache: None,
         });
 
-        Some(GpuContext { device, queue, pipeline })
+        Some(GpuContext {
+            device,
+            queue,
+            pipeline,
+        })
     }
 
     fn vertices_for(items: &[DisplayItem], width: f32, height: f32) -> Vec<Vertex> {
-        let to_ndc = |x: f32, y: f32| -> [f32; 2] {
-            [(x / width) * 2.0 - 1.0, 1.0 - (y / height) * 2.0]
-        };
+        let to_ndc =
+            |x: f32, y: f32| -> [f32; 2] { [(x / width) * 2.0 - 1.0, 1.0 - (y / height) * 2.0] };
         let mut vertices = Vec::with_capacity(items.len() * 6);
         for item in items {
             let color = [item.color.r, item.color.g, item.color.b, item.color.a];
@@ -132,7 +133,14 @@ impl GpuContext {
             let top_right = to_ndc(item.x + item.width, item.y);
             let bottom_left = to_ndc(item.x, item.y + item.height);
             let bottom_right = to_ndc(item.x + item.width, item.y + item.height);
-            let quad = [top_left, top_right, bottom_left, bottom_left, top_right, bottom_right];
+            let quad = [
+                top_left,
+                top_right,
+                bottom_left,
+                bottom_left,
+                top_right,
+                bottom_right,
+            ];
             vertices.extend(quad.into_iter().map(|position| Vertex { position, color }));
         }
         vertices
@@ -147,7 +155,11 @@ impl GpuContext {
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("display-list target"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -157,16 +169,20 @@ impl GpuContext {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("display-list encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("display-list encoder"),
+            });
 
         if !vertices.is_empty() {
-            let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("display-list vertices"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+            let vertex_buffer = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("display-list vertices"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
 
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("display-list pass"),
@@ -273,7 +289,12 @@ mod tests {
             y: 2.0,
             width: 4.0,
             height: 4.0,
-            color: Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            color: Color {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
         }];
         let pixels = gpu.render_to_rgba8(&items, 8, 8);
         assert_eq!(pixels.len(), 8 * 8 * 4);

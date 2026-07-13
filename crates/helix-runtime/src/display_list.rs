@@ -7,7 +7,7 @@ use lightningcss::values::color::CssColor;
 use markup5ever_rcdom::{Handle, NodeData};
 use taffy::{NodeId, TaffyTree};
 
-use crate::css::{matches, DomElement, StyleRule};
+use crate::css::{DomElement, StyleRule, matches};
 
 /// An RGBA color in `[0, 1]` linear-ish component range (no color management
 /// yet — sRGB hex values are mapped straight through).
@@ -20,7 +20,12 @@ pub struct Color {
 }
 
 impl Color {
-    pub const TRANSPARENT: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+    pub const TRANSPARENT: Color = Color {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.0,
+    };
 
     /// Parses any CSS `<color>` value `lightningcss` understands (hex,
     /// named colors like `red`, `rgb()`/`hsl()`, ...), converted to sRGB.
@@ -29,7 +34,9 @@ impl Color {
     pub fn parse_css(value: &str) -> Option<Color> {
         let color = CssColor::parse_string(value).ok()?;
         let rgba = color.to_rgb().ok()?;
-        let CssColor::RGBA(rgba) = rgba else { return None };
+        let CssColor::RGBA(rgba) = rgba else {
+            return None;
+        };
         Some(Color {
             r: rgba.red as f32 / 255.0,
             g: rgba.green as f32 / 255.0,
@@ -89,14 +96,22 @@ fn walk(
     rules: &[StyleRule],
     items: &mut Vec<DisplayItem>,
 ) {
-    let Ok(layout) = tree.layout(node) else { return };
+    let Ok(layout) = tree.layout(node) else {
+        return;
+    };
     let x = parent_x + layout.location.x;
     let y = parent_y + layout.location.y;
 
     if let Some(handle) = tree.get_node_context(node) {
         if matches!(handle.data, NodeData::Element { .. }) {
             if let Some(color) = background_color(&DomElement(handle.clone()), rules) {
-                items.push(DisplayItem { x, y, width: layout.size.width, height: layout.size.height, color });
+                items.push(DisplayItem {
+                    x,
+                    y,
+                    width: layout.size.width,
+                    height: layout.size.height,
+                    color,
+                });
             }
         }
     }
@@ -117,17 +132,40 @@ mod tests {
 
     #[test]
     fn parses_css_colors() {
-        assert_eq!(Color::parse_css("#ff0000"), Some(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }));
-        assert_eq!(Color::parse_css("#0f0"), Some(Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }));
-        assert_eq!(Color::parse_css("red"), Some(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }));
+        assert_eq!(
+            Color::parse_css("#ff0000"),
+            Some(Color {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0
+            })
+        );
+        assert_eq!(
+            Color::parse_css("#0f0"),
+            Some(Color {
+                r: 0.0,
+                g: 1.0,
+                b: 0.0,
+                a: 1.0
+            })
+        );
+        assert_eq!(
+            Color::parse_css("red"),
+            Some(Color {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0
+            })
+        );
         assert_eq!(Color::parse_css("not-a-color"), None);
     }
 
     #[test]
     fn emits_one_item_per_colored_box() {
-        let dom = parse_html(
-            r#"<html><body><div class="a"></div><div class="b"></div></body></html>"#,
-        );
+        let dom =
+            parse_html(r#"<html><body><div class="a"></div><div class="b"></div></body></html>"#);
         let rules = parse_stylesheet(
             "div.a { width: 10px; height: 10px; background-color: #ff0000; } \
              div.b { width: 20px; height: 20px; background-color: #00ff00; }",
@@ -137,8 +175,24 @@ mod tests {
 
         let items = build_display_list(&layout.tree, layout.root, &rules);
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0].color, Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
-        assert_eq!(items[1].color, Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 });
+        assert_eq!(
+            items[0].color,
+            Color {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0
+            }
+        );
+        assert_eq!(
+            items[1].color,
+            Color {
+                r: 0.0,
+                g: 1.0,
+                b: 0.0,
+                a: 1.0
+            }
+        );
         assert_eq!((items[1].x, items[1].width), (10.0, 20.0));
     }
 }

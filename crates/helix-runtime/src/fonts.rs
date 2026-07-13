@@ -4,7 +4,7 @@
 //! directly (via `cosmic_text::FontSystem::new_with_locale_and_db`), so this
 //! module's job is just enumeration/lookup, not shaping.
 
-use fontdb::{Database, Family, Query, Source, Style, Weight, ID};
+use fontdb::{Database, Family, ID, Query, Source, Style, Weight};
 
 /// Loads every font `fontdb` can find on the host system (platform font
 /// directories) into a fresh [`Database`].
@@ -56,7 +56,10 @@ mod tests {
     #[test]
     fn loads_at_least_one_system_font() {
         let db = load_system_fonts();
-        assert!(db.faces().next().is_some(), "expected at least one system font to be found");
+        assert!(
+            db.faces().next().is_some(),
+            "expected at least one system font to be found"
+        );
     }
 
     #[test]

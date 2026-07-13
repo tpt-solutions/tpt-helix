@@ -13,10 +13,10 @@
 //!   AST fidelity.
 
 pub mod js_transform;
-pub mod tree_sitter_discovery;
 pub mod transpile;
+pub mod tree_sitter_discovery;
 
-pub use tree_sitter_discovery::{discover_ast, discover_js, discover_ts, discover_tsx, SourceLang};
+pub use tree_sitter_discovery::{SourceLang, discover_ast, discover_js, discover_ts, discover_tsx};
 
 /// A module a source file imports from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,7 +145,13 @@ pub fn discover(source: &str) -> ApiSurfaceMap {
             } else {
                 // A default import identifier precedes the `{` (or `from`):
                 // `import React, { … } from "m"` / `import React from "m"`.
-                let head = rest.split('{').next().unwrap_or("").trim().trim_end_matches(',').trim();
+                let head = rest
+                    .split('{')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .trim_end_matches(',')
+                    .trim();
                 if !head.is_empty() && !head.starts_with('"') && !head.starts_with('\'') {
                     imp.default = true;
                 }
@@ -159,7 +165,9 @@ pub fn discover(source: &str) -> ApiSurfaceMap {
             // dependency even though nothing is declared locally.
             if let Some(from_idx) = rest.find(" from ") {
                 let after = &rest[from_idx + " from ".len()..];
-                if let Some((s, e)) = between(after, '"', '"').or_else(|| between(after, '\'', '\'')) {
+                if let Some((s, e)) =
+                    between(after, '"', '"').or_else(|| between(after, '\'', '\''))
+                {
                     let module = unquote(&after[s..e]);
                     if !module.is_empty() {
                         map.imports.push(Import {
@@ -172,7 +180,10 @@ pub fn discover(source: &str) -> ApiSurfaceMap {
                 }
             }
             if let Some(name) = rest.strip_prefix("function ") {
-                if let Some(n) = name.split(|c: char| !c.is_alphanumeric() && c != '_').next() {
+                if let Some(n) = name
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                {
                     if !n.is_empty() {
                         map.exports.push(Export {
                             kind: ExportKind::Function,
@@ -181,7 +192,10 @@ pub fn discover(source: &str) -> ApiSurfaceMap {
                     }
                 }
             } else if let Some(name) = rest.strip_prefix("class ") {
-                if let Some(n) = name.split(|c: char| !c.is_alphanumeric() && c != '_').next() {
+                if let Some(n) = name
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                {
                     if !n.is_empty() {
                         map.exports.push(Export {
                             kind: ExportKind::Class,
@@ -217,7 +231,10 @@ pub fn discover(source: &str) -> ApiSurfaceMap {
         }
 
         if let Some(name) = line.strip_prefix("function ") {
-            if let Some(n) = name.split(|c: char| !c.is_alphanumeric() && c != '_').next() {
+            if let Some(n) = name
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()
+            {
                 if !n.is_empty() {
                     map.functions.push(n.to_string());
                 }

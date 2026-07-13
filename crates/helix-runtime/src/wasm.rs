@@ -8,8 +8,8 @@
 //! holds one by value and implements the `Host` trait that `wasmtime`'s
 //! `bindgen!` generates for the imported interfaces of the `helix-guest` world.
 
-use wasmtime::component::{Component, Linker};
 use wasmtime::Store;
+use wasmtime::component::{Component, Linker};
 
 /// Re-exported so consumers (and tests) can build an [`Engine`] without taking
 /// a direct dependency on `wasmtime`.
@@ -30,12 +30,12 @@ pub mod bindings {
     });
 }
 
+use bindings::HelixGuest;
 use bindings::helix::runtime::{dom, media, network};
 use bindings::helix::runtime::{
     dom::Host as DomHost, media::Host as MediaHost, network::Host as NetworkHost,
     storage::Host as StorageHost,
 };
-use bindings::HelixGuest;
 
 /// Host state handed to a guest component. Implements the generated `Host`
 /// trait by delegating to a binding-neutral [`RuntimeState`].
@@ -136,13 +136,11 @@ impl NetworkHost for Host {
             headers: req.headers,
             body: req.body,
         };
-        self.state
-            .fetch(neutral)
-            .map(|r| network::Response {
-                status: r.status,
-                headers: r.headers,
-                body: r.body,
-            })
+        self.state.fetch(neutral).map(|r| network::Response {
+            status: r.status,
+            headers: r.headers,
+            body: r.body,
+        })
     }
 }
 
@@ -192,9 +190,18 @@ impl Module {
         let mut store = Store::new(engine, host);
         let mut linker: Linker<Host> = Linker::new(engine);
         bindings::helix::runtime::dom::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
-        bindings::helix::runtime::network::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
-        bindings::helix::runtime::storage::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
-        bindings::helix::runtime::media::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
+        bindings::helix::runtime::network::add_to_linker::<Host, Host>(
+            &mut linker,
+            |h: &mut Host| h,
+        )?;
+        bindings::helix::runtime::storage::add_to_linker::<Host, Host>(
+            &mut linker,
+            |h: &mut Host| h,
+        )?;
+        bindings::helix::runtime::media::add_to_linker::<Host, Host>(
+            &mut linker,
+            |h: &mut Host| h,
+        )?;
         let bindings = HelixGuest::instantiate(&mut store, &self.component, &linker)?;
         Ok(Instance { bindings, store })
     }

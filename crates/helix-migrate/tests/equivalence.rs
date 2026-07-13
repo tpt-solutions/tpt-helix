@@ -10,7 +10,7 @@
 //! These properties are exercised with `proptest` over randomly generated HTML
 //! trees (fuzzing), not just hand-written fixtures.
 
-use helix_migrate::transpile::{collect_text, parse_html, transpile_static_site, DomOp};
+use helix_migrate::transpile::{DomOp, collect_text, parse_html, transpile_static_site};
 use proptest::prelude::*;
 
 /// A synthetic HTML tree used as the migration source.

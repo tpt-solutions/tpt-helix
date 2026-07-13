@@ -119,7 +119,11 @@ fn to_public(el: &InternalElement) -> Element {
         tag: el.tag.clone(),
         text: el.text.clone(),
         attributes: el.attributes.clone(),
-        children: el.children.iter().map(|c| WitElementId { id: *c }).collect(),
+        children: el
+            .children
+            .iter()
+            .map(|c| WitElementId { id: *c })
+            .collect(),
     }
 }
 
@@ -194,8 +198,13 @@ impl RuntimeState {
         }
         let id = self.next_id;
         self.next_id += 1;
-        self.elements
-            .insert(id, InternalElement { tag, ..Default::default() });
+        self.elements.insert(
+            id,
+            InternalElement {
+                tag,
+                ..Default::default()
+            },
+        );
         id
     }
 
@@ -250,10 +259,7 @@ impl RuntimeState {
         {
             return;
         }
-        self.click_handlers
-            .entry(id)
-            .or_default()
-            .push(handler_id);
+        self.click_handlers.entry(id).or_default().push(handler_id);
     }
 
     // --- media -------------------------------------------------------------

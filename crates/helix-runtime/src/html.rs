@@ -2,7 +2,7 @@
 
 use html5ever::driver::ParseOpts;
 use html5ever::tendril::TendrilSink;
-use html5ever::{parse_document, QualName};
+use html5ever::{QualName, parse_document};
 use markup5ever_rcdom::{Handle, RcDom};
 
 /// Parses an HTML5 document string into an `RcDom` tree.
@@ -76,10 +76,7 @@ mod tests {
     #[test]
     fn parses_nested_elements_and_text() {
         let dom = parse_html("<html><body><h1>Title</h1><p>Hello <b>world</b></p></body></html>");
-        assert_eq!(
-            tags(&dom),
-            vec!["html", "body", "h1", "p", "b"]
-        );
+        assert_eq!(tags(&dom), vec!["html", "body", "h1", "p", "b"]);
         assert_eq!(text(&dom), vec!["Title", "Hello", "world"]);
     }
 
@@ -94,7 +91,8 @@ mod tests {
 
     #[test]
     fn parses_attributes() {
-        let dom = parse_html(r#"<html><body><a href="https://x.test" class="link">go</a></body></html>"#);
+        let dom =
+            parse_html(r#"<html><body><a href="https://x.test" class="link">go</a></body></html>"#);
         let tags = tags(&dom);
         assert_eq!(tags, vec!["html", "body", "a"]);
 
@@ -121,14 +119,17 @@ mod tests {
     #[test]
     fn ignores_doctype_and_comments() {
         // Doctype and comments are non-element nodes and must not appear as tags.
-        let dom = parse_html("<!doctype html><!-- a comment --><html><body><p>real</p></body></html>");
+        let dom =
+            parse_html("<!doctype html><!-- a comment --><html><body><p>real</p></body></html>");
         assert_eq!(tags(&dom), vec!["html", "body", "p"]);
         assert_eq!(text(&dom), vec!["real"]);
     }
 
     #[test]
     fn handles_void_and_self_closing_elements() {
-        let dom = parse_html(r#"<html><body><img src="a.png"/><br><input type="text" value="x"></body></html>"#);
+        let dom = parse_html(
+            r#"<html><body><img src="a.png"/><br><input type="text" value="x"></body></html>"#,
+        );
         assert_eq!(tags(&dom), vec!["html", "body", "img", "br", "input"]);
     }
 }

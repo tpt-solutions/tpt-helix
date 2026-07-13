@@ -9,18 +9,37 @@ use std::collections::HashMap;
 
 use markup5ever_rcdom::{Handle, NodeData};
 use taffy::{
-    AvailableSpace, Display, Dimension, FlexDirection, NodeId, Rect, Size, Style, TaffyTree,
+    AvailableSpace, Dimension, Display, FlexDirection, NodeId, Rect, Size, Style, TaffyTree,
 };
 
 use crate::css::{
-    resolve_element_props, StyleProps, {self},
+    StyleProps, resolve_element_props, {self},
 };
-use crate::render::{RenderItem, RectItem, TextItem};
+use crate::render::{RectItem, RenderItem, TextItem};
 
 /// Tags that default to block-level formatting if no `display` is set.
 const BLOCK_TAGS: &[&str] = &[
-    "html", "body", "div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "header",
-    "footer", "main", "section", "article", "nav", "blockquote", "pre",
+    "html",
+    "body",
+    "div",
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "header",
+    "footer",
+    "main",
+    "section",
+    "article",
+    "nav",
+    "blockquote",
+    "pre",
 ];
 
 /// Per-node paint metadata attached during tree construction.
@@ -88,7 +107,16 @@ impl HelixDocument {
             .children
             .borrow()
             .iter()
-            .filter_map(|h| build_node(&mut tree, h.clone(), self, width, [0, 0, 0, 255], &mut metas))
+            .filter_map(|h| {
+                build_node(
+                    &mut tree,
+                    h.clone(),
+                    self,
+                    width,
+                    [0, 0, 0, 255],
+                    &mut metas,
+                )
+            })
             .collect();
         tree.set_children(root, &top).unwrap();
 
@@ -162,13 +190,10 @@ fn build_node(
             let style = element_style(&props, is_block);
 
             let child_color = props.color.unwrap_or(inherited_color);
-            let child_handles: Vec<Handle> =
-                handle.children.borrow().iter().cloned().collect();
+            let child_handles: Vec<Handle> = handle.children.borrow().iter().cloned().collect();
             let mut child_nodes = Vec::new();
             for ch in child_handles {
-                if let Some(n) =
-                    build_node(tree, ch, doc, max_width, child_color, metas)
-                {
+                if let Some(n) = build_node(tree, ch, doc, max_width, child_color, metas) {
                     child_nodes.push(n);
                 }
             }
@@ -192,7 +217,9 @@ fn build_node(
                 return None;
             }
             let size = 16.0;
-            let w = estimate_text_width(trimmed, size).min(max_width - 4.0).max(size);
+            let w = estimate_text_width(trimmed, size)
+                .min(max_width - 4.0)
+                .max(size);
             let h = size * 1.25;
             let style = Style {
                 display: Display::Block,

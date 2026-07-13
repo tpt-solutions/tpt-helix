@@ -32,11 +32,14 @@ fn network_grant_scoped_to_host_allows_then_denies() {
         headers: vec![],
         body: None,
     };
-    state.register_fetch("https://api.example.com/data", Response {
-        status: 200,
-        headers: vec![],
-        body: b"ok".to_vec(),
-    });
+    state.register_fetch(
+        "https://api.example.com/data",
+        Response {
+            status: 200,
+            headers: vec![],
+            body: b"ok".to_vec(),
+        },
+    );
     assert!(state.fetch(ok).is_ok());
 
     let denied = Request {
@@ -67,7 +70,12 @@ fn storage_grant_scoped_to_namespace() {
 
 #[test]
 fn dom_grant_required_for_element_ops() {
-    let mut granted = state_with("app", &[Capability::Dom { scope: DomScope::Full }]);
+    let mut granted = state_with(
+        "app",
+        &[Capability::Dom {
+            scope: DomScope::Full,
+        }],
+    );
     let id = granted.create_element("div".into());
     assert_ne!(id, u64::MAX);
     granted.set_text(id, "hi".into());
@@ -81,10 +89,7 @@ fn dom_grant_required_for_element_ops() {
 
 #[test]
 fn revocation_aborts_further_capability_use() {
-    let mut state = RuntimeState::with_broker(
-        "app".into(),
-        CapabilityBroker::new(),
-    );
+    let mut state = RuntimeState::with_broker("app".into(), CapabilityBroker::new());
     let token = state.grant(Capability::Network {
         hosts: vec![HostPattern::Exact("api.example.com".into())],
     });
@@ -136,25 +141,29 @@ fn delegation_flows_capability_to_second_module() {
         .expect("delegation within parent scope");
 
     // Child may use the delegated, narrowed host.
-    assert!(broker
-        .check(
-            child,
-            &Capability::Network {
-                hosts: vec![HostPattern::Exact("api.example.com".into())]
-            }
-        )
-        .is_ok());
+    assert!(
+        broker
+            .check(
+                child,
+                &Capability::Network {
+                    hosts: vec![HostPattern::Exact("api.example.com".into())]
+                }
+            )
+            .is_ok()
+    );
 
     // Child cannot exceed the parent's scope.
-    assert!(broker
-        .delegate(
-            parent,
-            "child".into(),
-            Capability::Network {
-                hosts: vec![HostPattern::Exact("other.test".into())]
-            }
-        )
-        .is_err());
+    assert!(
+        broker
+            .delegate(
+                parent,
+                "child".into(),
+                Capability::Network {
+                    hosts: vec![HostPattern::Exact("other.test".into())]
+                }
+            )
+            .is_err()
+    );
 }
 
 #[test]
@@ -192,14 +201,16 @@ fn media_player_lifecycle_play_pause_seek() {
     let mut state = RuntimeState::with_broker("app".into(), CapabilityBroker::new());
     // No media grant in legacy-permissive mode (broker present but no grant):
     // create_player is denied until a grant is recorded for the app.
-    assert!(state
-        .create_player(VideoConfig {
-            codec: "vp9".into(),
-            width: 320,
-            height: 240,
-            bitrate: 500_000,
-        })
-        .is_err());
+    assert!(
+        state
+            .create_player(VideoConfig {
+                codec: "vp9".into(),
+                width: 320,
+                height: 240,
+                bitrate: 500_000,
+            })
+            .is_err()
+    );
 
     state.grant(Capability::Media {
         max_resolution: Some((1920, 1080)),

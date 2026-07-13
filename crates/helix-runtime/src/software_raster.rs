@@ -23,11 +23,7 @@ use crate::display_list::{Color, DisplayItem};
 /// Each item's color is alpha-composited over whatever is already there, so a
 /// later item occludes an earlier one where they overlap (matching the
 /// over-painting semantics of the GPU path).
-pub fn rasterize_display_list(
-    items: &[DisplayItem],
-    width: u32,
-    height: u32,
-) -> RgbaImage {
+pub fn rasterize_display_list(items: &[DisplayItem], width: u32, height: u32) -> RgbaImage {
     let mut buf = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 0]));
 
     for item in items {
@@ -98,12 +94,29 @@ mod tests {
     use crate::display_list::DisplayItem;
 
     fn rect(x: f32, y: f32, w: f32, h: f32, c: Color) -> DisplayItem {
-        DisplayItem { x, y, width: w, height: h, color: c }
+        DisplayItem {
+            x,
+            y,
+            width: w,
+            height: h,
+            color: c,
+        }
     }
 
     #[test]
     fn paints_opaque_rect() {
-        let items = vec![rect(0.0, 0.0, 10.0, 10.0, Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 })];
+        let items = vec![rect(
+            0.0,
+            0.0,
+            10.0,
+            10.0,
+            Color {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+        )];
         let img = rasterize_display_list(&items, 10, 10);
         assert_eq!(img.get_pixel(5, 5), &Rgba([255, 0, 0, 255]));
         // Outside the rect stays transparent.
@@ -113,12 +126,38 @@ mod tests {
     #[test]
     fn later_items_occlude_earlier_ones() {
         let items = vec![
-            rect(0.0, 0.0, 10.0, 10.0, Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }),
-            rect(2.0, 2.0, 4.0, 4.0, Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }),
+            rect(
+                0.0,
+                0.0,
+                10.0,
+                10.0,
+                Color {
+                    r: 1.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 1.0,
+                },
+            ),
+            rect(
+                2.0,
+                2.0,
+                4.0,
+                4.0,
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 1.0,
+                    a: 1.0,
+                },
+            ),
         ];
         let img = rasterize_display_list(&items, 10, 10);
         assert_eq!(img.get_pixel(4, 4), &Rgba([0, 0, 255, 255]), "blue on top");
-        assert_eq!(img.get_pixel(0, 0), &Rgba([255, 0, 0, 255]), "red underneath");
+        assert_eq!(
+            img.get_pixel(0, 0),
+            &Rgba([255, 0, 0, 255]),
+            "red underneath"
+        );
     }
 
     #[test]
@@ -128,16 +167,36 @@ mod tests {
             0.0,
             10.0,
             10.0,
-            Color { r: 0.0, g: 0.0, b: 0.0, a: 0.5 },
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.5,
+            },
         )];
         let img = rasterize_display_list(&items, 10, 10);
         // 50% black over transparent -> mid grey, 50% alpha.
-        assert_eq!(img.get_pixel(5, 5), &Rgba([0, 0, 0, 127]), "half-alpha black");
+        assert_eq!(
+            img.get_pixel(5, 5),
+            &Rgba([0, 0, 0, 127]),
+            "half-alpha black"
+        );
     }
 
     #[test]
     fn round_trips_through_png() {
-        let items = vec![rect(0.0, 0.0, 4.0, 4.0, Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 })];
+        let items = vec![rect(
+            0.0,
+            0.0,
+            4.0,
+            4.0,
+            Color {
+                r: 0.0,
+                g: 1.0,
+                b: 0.0,
+                a: 1.0,
+            },
+        )];
         let img = rasterize_display_list(&items, 4, 4);
         let png = encode_png(&img);
         let back = decode_png(&png).expect("re-decode");

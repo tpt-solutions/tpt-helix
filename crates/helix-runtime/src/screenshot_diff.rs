@@ -102,7 +102,10 @@ pub fn assert_within(
     assert!(
         report.changed_ratio <= max_changed_ratio,
         "visual regression: changed_ratio {:.4} exceeds threshold {:.4} (max delta {}, mean {:4})",
-        report.changed_ratio, max_changed_ratio, report.max_channel_delta, report.mean_channel_delta
+        report.changed_ratio,
+        max_changed_ratio,
+        report.max_channel_delta,
+        report.mean_channel_delta
     );
     report
 }

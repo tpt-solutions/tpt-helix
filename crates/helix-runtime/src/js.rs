@@ -5,8 +5,8 @@
 //! Nothing here is on the WASM hot path (per G1): this interpreter only runs
 //! legacy JS that hasn't been migrated to WASM yet.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use rquickjs::{Context, Runtime};
@@ -62,7 +62,11 @@ impl Interpreter {
             now >= d
         })));
         let context = Context::full(&runtime).map_err(|e| JsError(e.to_string()))?;
-        Ok(Interpreter { context, runtime, deadline })
+        Ok(Interpreter {
+            context,
+            runtime,
+            deadline,
+        })
     }
 
     /// Evaluate `source` with an execution budget of `timeout`.
@@ -125,7 +129,10 @@ mod tests {
     #[test]
     fn evaluates_arithmetic() {
         let interpreter = Interpreter::new().unwrap();
-        assert_eq!(interpreter.eval_to_string("1 + 2").unwrap(), Some("3".to_string()));
+        assert_eq!(
+            interpreter.eval_to_string("1 + 2").unwrap(),
+            Some("3".to_string())
+        );
     }
 
     #[test]
@@ -144,7 +151,11 @@ mod tests {
     #[test]
     fn syntax_errors_surface_as_js_error() {
         let interpreter = Interpreter::new().unwrap();
-        assert!(interpreter.eval_to_string("this is not valid js (((").is_err());
+        assert!(
+            interpreter
+                .eval_to_string("this is not valid js (((")
+                .is_err()
+        );
     }
 
     #[test]
@@ -152,7 +163,10 @@ mod tests {
         let a = Interpreter::new().unwrap();
         let b = Interpreter::new().unwrap();
         a.eval_to_string("globalThis.x = 42").unwrap();
-        assert_eq!(a.eval_to_string("globalThis.x").unwrap(), Some("42".to_string()));
+        assert_eq!(
+            a.eval_to_string("globalThis.x").unwrap(),
+            Some("42".to_string())
+        );
         assert_eq!(b.eval_to_string("globalThis.x").unwrap(), None);
     }
 

@@ -43,10 +43,8 @@ impl eframe::App for AppFront {
             for item in items {
                 match item {
                     RenderItem::Rect(r) => {
-                        let rect = egui::Rect::from_min_size(
-                            egui::pos2(r.x, r.y),
-                            egui::vec2(r.w, r.h),
-                        );
+                        let rect =
+                            egui::Rect::from_min_size(egui::pos2(r.x, r.y), egui::vec2(r.w, r.h));
                         let fill = rgba(r.fill);
                         if let Some(bc) = r.border_color {
                             painter.rect(rect, r.radius, fill, (r.border_width, rgba(bc)));

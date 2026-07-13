@@ -194,7 +194,9 @@ pub struct DomElement(pub Handle);
 
 impl fmt::Debug for DomElement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DomElement").field("name", &self.local_name()).finish()
+        f.debug_struct("DomElement")
+            .field("name", &self.local_name())
+            .finish()
     }
 }
 
@@ -254,7 +256,9 @@ impl Element for DomElement {
     fn prev_sibling_element(&self) -> Option<Self> {
         let parent = self.parent_handle()?;
         let siblings = parent.children.borrow();
-        let idx = siblings.iter().position(|c| std::rc::Rc::ptr_eq(c, &self.0))?;
+        let idx = siblings
+            .iter()
+            .position(|c| std::rc::Rc::ptr_eq(c, &self.0))?;
         siblings[..idx]
             .iter()
             .rev()
@@ -265,7 +269,9 @@ impl Element for DomElement {
     fn next_sibling_element(&self) -> Option<Self> {
         let parent = self.parent_handle()?;
         let siblings = parent.children.borrow();
-        let idx = siblings.iter().position(|c| std::rc::Rc::ptr_eq(c, &self.0))?;
+        let idx = siblings
+            .iter()
+            .position(|c| std::rc::Rc::ptr_eq(c, &self.0))?;
         siblings[idx + 1..]
             .iter()
             .find(|c| matches!(c.data, NodeData::Element { .. }))
@@ -442,11 +448,13 @@ mod tests {
         let dom = parse_html("<html><body><p>hi</p></body></html>");
         let rules = parse_stylesheet("div.card { color: red; }");
         let element = root_child_element(&dom);
-        assert!(!rules[0]
-            .selectors
-            .slice()
-            .iter()
-            .any(|s| matches(s, &element)));
+        assert!(
+            !rules[0]
+                .selectors
+                .slice()
+                .iter()
+                .any(|s| matches(s, &element))
+        );
     }
 
     #[test]
@@ -455,12 +463,19 @@ mod tests {
         let rules = parse_stylesheet("#main { color: red; }");
         assert!(!rules.is_empty(), "id selector should parse");
         let element = root_child_element(&dom);
-        assert!(rules[0].selectors.slice().iter().any(|s| matches(s, &element)));
+        assert!(
+            rules[0]
+                .selectors
+                .slice()
+                .iter()
+                .any(|s| matches(s, &element))
+        );
     }
 
     #[test]
     fn matches_attribute_selector() {
-        let dom = parse_html(r#"<html><body><input type="text"><input type="password"></body></html>"#);
+        let dom =
+            parse_html(r#"<html><body><input type="text"><input type="password"></body></html>"#);
         let rules = parse_stylesheet(r#"input[type="password"] { color: red; }"#);
         // Two input elements: find each and assert only the password one matches.
         let mut inputs = Vec::new();
@@ -475,39 +490,46 @@ mod tests {
             .find(|el| DomElement(el.clone()).attr("type").as_deref() == Some("text"))
             .expect("text input");
 
-        assert!(rules[0]
-            .selectors
-            .slice()
-            .iter()
-            .any(|s| matches(s, &DomElement(password.clone()))));
-        assert!(!rules[0]
-            .selectors
-            .slice()
-            .iter()
-            .any(|s| matches(s, &DomElement(text.clone()))));
+        assert!(
+            rules[0]
+                .selectors
+                .slice()
+                .iter()
+                .any(|s| matches(s, &DomElement(password.clone())))
+        );
+        assert!(
+            !rules[0]
+                .selectors
+                .slice()
+                .iter()
+                .any(|s| matches(s, &DomElement(text.clone())))
+        );
     }
 
     #[test]
     fn matches_descendant_combinator() {
-        let dom = parse_html(
-            r#"<html><body><section><p>deep</p></section><p>shallow</p></body></html>"#,
-        );
+        let dom =
+            parse_html(r#"<html><body><section><p>deep</p></section><p>shallow</p></body></html>"#);
         let rules = parse_stylesheet("section p { color: red; }");
         let mut ps = Vec::new();
         find_all(&dom.document, "p", &mut ps);
         assert_eq!(ps.len(), 2);
         let deep = ps[0].clone();
         let shallow = ps[1].clone();
-        assert!(rules[0]
-            .selectors
-            .slice()
-            .iter()
-            .any(|s| matches(s, &DomElement(deep))));
-        assert!(!rules[0]
-            .selectors
-            .slice()
-            .iter()
-            .any(|s| matches(s, &DomElement(shallow))));
+        assert!(
+            rules[0]
+                .selectors
+                .slice()
+                .iter()
+                .any(|s| matches(s, &DomElement(deep)))
+        );
+        assert!(
+            !rules[0]
+                .selectors
+                .slice()
+                .iter()
+                .any(|s| matches(s, &DomElement(shallow)))
+        );
     }
 
     #[test]
@@ -516,7 +538,10 @@ mod tests {
         // sound rather than panicking or silently matching everything.
         let dom = parse_html(r#"<html><body><a href="x">hi</a></body></html>"#);
         let rules = parse_stylesheet("a:hover { color: red; }");
-        assert!(rules.is_empty(), "unsupported pseudo-class rules are dropped");
+        assert!(
+            rules.is_empty(),
+            "unsupported pseudo-class rules are dropped"
+        );
         assert_eq!(tags(&dom), vec!["html", "body", "a"]);
     }
 
