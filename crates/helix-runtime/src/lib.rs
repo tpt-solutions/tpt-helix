@@ -1,6 +1,7 @@
 pub mod capability;
 pub mod content;
 pub mod css;
+pub mod dash;
 pub mod display_list;
 pub mod fonts;
 pub mod gpu;
@@ -8,6 +9,8 @@ pub mod html;
 pub mod js;
 pub mod js_bridge;
 pub mod layout;
+pub mod media_decode;
+pub mod p2p;
 pub mod raster;
 pub mod stub;
 pub mod text;

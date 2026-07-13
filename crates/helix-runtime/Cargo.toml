@@ -3,6 +3,12 @@ name = "helix-runtime"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Enables hardware decode backends (VA-API / Vulkan Video). Off by default so
+# the crate builds and tests on headless CI hosts without a GPU. See
+# `media_decode.rs`.
+hardware-decode = []
+
 [dependencies]
 html5ever = "0.39.0"
 lightningcss = "1.0.0-alpha.71"
