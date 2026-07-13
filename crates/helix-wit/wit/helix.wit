@@ -65,16 +65,43 @@ interface dom {
 }
 
 // ---------------------------------------------------------------------------
+// media
+// ---------------------------------------------------------------------------
+
+interface media {
+    record player-handle {
+        handle: u64,
+    }
+
+    record video-config {
+        codec: string,  // "h264", "vp9", "av1"
+        width: u32,
+        height: u32,
+        bitrate: u32,
+    }
+
+    // Creates a media player for the given configuration. Fails with an error
+    // string when the module lacks a `media` capability covering the requested
+    // resolution, or the configuration cannot be satisfied.
+    create-player: func(config: video-config) -> result<player-handle, string>;
+    play: func(handle: player-handle);
+    pause: func(handle: player-handle);
+    seek: func(handle: player-handle, time-ms: u64);
+}
+
+// ---------------------------------------------------------------------------
 // worlds
 // ---------------------------------------------------------------------------
 
 // The host (Helix Runtime) *exports* these capability interfaces: a guest
 // component imports them and calls them. `wit_bindgen` generates a `Guest`
 // trait per interface (under `host::exports`) that the native host implements.
-world helix-runtime {
+// Named `helix-host` to match the `world:` selector in `crates/helix-wit`.
+world helix-host {
     export network;
     export storage;
     export dom;
+    export media;
 }
 
 // A guest module *imports* the same interfaces. `wit_bindgen` generates the
@@ -82,9 +109,12 @@ world helix-runtime {
 // It also *exports* a `run` entry point that the host invokes after
 // instantiation to drive the module (see the smoke-test guest in
 // `crates/helix-guest-example` and the wasmtime host in `crates/helix-runtime`).
+// Named `helix-guest` (not `helix`) to avoid colliding with the `helix`
+// package namespace in wasmtime's codegen.
 world helix-guest {
     import network;
     import storage;
     import dom;
+    import media;
     export run: func();
 }

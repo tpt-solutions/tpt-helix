@@ -9,16 +9,18 @@ tracks execution, not design decisions.
 ## Phase 0: Foundation (Months 1–3)
 
 ### Helix Runtime v0.1: Static renderer + QuickJS fallback
-- [ ] Stand up `cargo` workspace skeleton for the Helix Runtime
-- [ ] Integrate `html5ever` for HTML5 parsing
-- [ ] Integrate `lightningcss` + `selectors` (Servo) for CSS parsing and rule matching
-- [ ] Integrate `taffy` for flexbox/grid layout
-- [ ] Integrate `cosmic-text` for font shaping and line breaking
-- [ ] Integrate `fontdb` for system font enumeration
-- [ ] Integrate `image` (PNG/JPEG/WebP/GIF) and `resvg` (SVG) decoding
-- [ ] Build display-list → `wgpu` GPU command buffer → present pipeline
-- [ ] Embed QuickJS as the legacy JS fallback interpreter
-- [ ] Define the JS → WIT bridge stub (expose minimal host functions to QuickJS)
+- [x] Stand up `cargo` workspace skeleton for the Helix Runtime
+- [x] Integrate `html5ever` for HTML5 parsing (`src/html.rs`)
+- [x] Integrate `lightningcss` + `selectors` (Servo) for CSS parsing and rule matching (`src/css.rs`)
+- [x] Integrate `taffy` for flexbox/grid layout (`src/layout.rs`)
+- [x] Integrate `cosmic-text` for font shaping and line breaking (`src/text.rs`)
+- [x] Integrate `fontdb` for system font enumeration (`src/fonts.rs`)
+- [x] Integrate `image` (PNG/JPEG/WebP/GIF) and `resvg` (SVG) decoding (`src/raster.rs`)
+- [x] Build display-list → `wgpu` GPU command buffer → present pipeline
+      (`src/display_list.rs`, `src/gpu.rs`)
+- [x] Embed QuickJS as the legacy JS fallback interpreter (`src/js.rs`, via `rquickjs`)
+- [x] Define the JS → WIT bridge stub (expose minimal host functions to QuickJS)
+      (`src/js_bridge.rs`, delegates to `stub::RuntimeStub`)
 
 ### WIT interface definitions for DOM, network, storage
 - [x] Author `network` WIT interface (`request`/`response` records, `fetch` func)
@@ -34,10 +36,10 @@ tracks execution, not design decisions.
 - [x] Validate a minimal AppFront-hosted window renders static HTML/CSS content
 
 ### Basic WASM module loading (wasmtime)
-- [ ] Integrate `wasmtime` for JIT-compiled WASM execution
-- [ ] Implement module load/instantiate/teardown lifecycle
-- [ ] Wire generated WIT bindings into the module host-import table
-- [ ] Add a smoke-test WASM module (e.g. "hello DOM") that exercises `dom` interface calls
+- [x] Integrate `wasmtime` for JIT-compiled WASM execution
+- [x] Implement module load/instantiate/teardown lifecycle
+- [x] Wire generated WIT bindings into the module host-import table
+- [x] Add a smoke-test WASM module (e.g. "hello DOM") that exercises `dom` interface calls
 
 ### Single-platform build (Linux x86_64)
 - [ ] Set up `cargo` build profile and CI job targeting Linux x86_64
@@ -47,35 +49,39 @@ tracks execution, not design decisions.
 ## Phase 1: Core (Months 4–6)
 
 ### Capability broker implementation
-- [ ] Implement the Capability Broker core (grant registry, per-app/per-resource scoping)
-- [ ] Implement per-capability revocation at runtime
-- [ ] Implement capability delegation between modules (composability)
-- [ ] Implement trap/abort behavior when a module exceeds its granted capabilities
-- [ ] Build the user-facing grant/deny/modify prompt flow (declare → request → approve)
-- [ ] Wire `network`, `storage`, `dom`, and `media` capability handles through the broker
+- [x] Implement the Capability Broker core (grant registry, per-app/per-resource scoping)
+- [x] Implement per-capability revocation at runtime
+- [x] Implement capability delegation between modules (composability)
+- [x] Implement trap/abort behavior when a module exceeds its granted capabilities
+- [x] Build the user-facing grant/deny/modify prompt flow (declare → request → approve)
+- [x] Wire `network`, `storage`, `dom`, and `media` capability handles through the broker
 
 ### Content-addressed distribution (libp2p integration)
 - [ ] Integrate `libp2p` for DHT + bitswap content resolution
 - [ ] Replace location-based asset URLs with content-addressed identifiers
-- [ ] Implement local content cache/store for resolved immutable assets
-- [ ] Add integrity verification (hash-check) on all content-addressed fetches
+- [x] Implement local content cache/store for resolved immutable assets
+- [x] Add integrity verification (hash-check) on all content-addressed fetches
 
 ### Media pipeline (hardware decode + DASH streaming)
-- [ ] Author `media` WIT interface implementation (`video-config`, `create-player`,
-      `play`/`pause`/`seek`)
+- [x] Author `media` WIT interface implementation (`video-config`, `create-player`,
+      `play`/`pause`/`seek`) — defined in `wit/helix.wit`, generated bindings,
+      and wired through `stub` + wasmtime `Host` with capability (resolution-cap) checks
 - [ ] Integrate hardware decode paths (VA-API / Vulkan video)
 - [ ] Implement DASH adaptive streaming client
 - [ ] Benchmark 720p video player against the ≤200MB memory target (§7.1)
 
 ### Cross-platform builds (macOS, Windows)
-- [ ] Extend `cross`/CI to build and test macOS targets
-- [ ] Extend `cross`/CI to build and test Windows targets
+- [x] Extend `cross`/CI to build and test macOS targets (`.github/workflows/ci.yml`)
+- [x] Extend `cross`/CI to build and test Windows targets (incl. `patch` for QuickJS)
 - [ ] Validate `wgpu` backend selection (Metal / DX12) on each platform
-- [ ] Validate QuickJS + wasmtime builds on each platform
+- [ ] Validate QuickJS + wasmtime builds/runs on each platform
 
 ### AI migration agent v0.1: JS → TS → Rust for static sites
-- [ ] Integrate `tree-sitter` for JS/TS AST parsing (Stage S1: Discovery)
-- [ ] Build dependency graph / API-surface-map extraction from a repo + package.json
+- [ ] Integrate `tree-sitter` for JS/TS AST parsing (Stage S1: Discovery) —
+      `helix-migrate::discover` currently uses a dependency-free tokenizer
+      that already produces the `ApiSurfaceMap` contract tree-sitter will fill
+- [x] Build dependency graph / API-surface-map extraction from a repo + package.json
+      (`crates/helix-migrate`: `discover` → `ApiSurfaceMap` of imports/exports/functions)
 - [ ] Adapt `jscodeshift`-style AST-to-AST transform pipeline (Stage S2: Transpile)
 - [ ] Wire TPT Eve for high-level migration planning orchestration
 - [ ] Wire TPT Spark for local on-device code generation

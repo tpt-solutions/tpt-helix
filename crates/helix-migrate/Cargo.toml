@@ -1,0 +1,15 @@
+[package]
+name = "helix-migrate"
+version = "0.1.0"
+edition = "2024"
+
+# Phase 1: AI migration agent v0.1. This crate is the Stage S1 (Discovery)
+# frontend of the migration pipeline (spec §6.1). It extracts a lightweight
+# API-surface map (imports / exports / top-level functions) from JS/TS source so
+# the orchestration layer can plan a migration before any transpilation.
+#
+# The reference implementation is backed by `tree-sitter` for full AST
+# fidelity; this initial version uses a dependency-free tokenizer so the
+# discovery contract is exercised in tests without pulling in native grammar
+# builds. The `ApiSurfaceMap` shape is the stable interface `tree-sitter` will
+# populate.

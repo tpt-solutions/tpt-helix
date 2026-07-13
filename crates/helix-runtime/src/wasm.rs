@@ -5,8 +5,8 @@
 //! manages the load → instantiate → run → teardown lifecycle of a guest module.
 //!
 //! The capability behavior lives in [`crate::stub::RuntimeState`]; [`Host`]
-//! holds one by value and implements the `Guest` trait that `wasmtime`'s
-//! `bindgen!` generates for the host side of the `helix-guest` world.
+//! holds one by value and implements the `Host` trait that `wasmtime`'s
+//! `bindgen!` generates for the imported interfaces of the `helix-guest` world.
 
 use wasmtime::component::{Component, Linker};
 use wasmtime::Store;
@@ -15,7 +15,7 @@ use wasmtime::Store;
 /// a direct dependency on `wasmtime`.
 pub use wasmtime::Engine;
 
-use crate::stub::{Element, RuntimeState};
+use crate::stub::{Element, Request, RuntimeState};
 
 /// Generated host bindings for the `helix-guest` world.
 ///
@@ -30,12 +30,15 @@ pub mod bindings {
     });
 }
 
-use bindings::helix::runtime::{dom, network, storage};
-use bindings::helix::runtime::{dom::Host as DomHost, network::Host as NetworkHost, storage::Host as StorageHost};
+use bindings::helix::runtime::{dom, media, network};
+use bindings::helix::runtime::{
+    dom::Host as DomHost, media::Host as MediaHost, network::Host as NetworkHost,
+    storage::Host as StorageHost,
+};
 use bindings::HelixGuest;
 
-/// Host state handed to a guest component. Implements the generated `Guest`
-/// trait by delegating to a [`RuntimeState`].
+/// Host state handed to a guest component. Implements the generated `Host`
+/// trait by delegating to a binding-neutral [`RuntimeState`].
 pub struct Host {
     pub state: RuntimeState,
 }
@@ -49,15 +52,15 @@ impl Host {
 
     /// Convenience accessor mirroring `RuntimeStub::element`.
     pub fn element(&self, id: dom::ElementId) -> Option<Element> {
-        self.state.element(id)
+        self.state.element(id.id)
     }
 
     pub fn click_count(&self, id: dom::ElementId) -> usize {
-        self.state.click_count(id)
+        self.state.click_count(id.id)
     }
 
     pub fn click_handler_ids(&self, id: dom::ElementId) -> Option<Vec<u64>> {
-        self.state.click_handler_ids(id)
+        self.state.click_handler_ids(id.id)
     }
 
     /// Convenience accessor mirroring `RuntimeStub::get`.
@@ -78,29 +81,68 @@ impl wasmtime::component::HasData for Host {
 
 impl DomHost for Host {
     fn create_element(&mut self, tag: String) -> dom::ElementId {
-        self.state.create_element(tag)
+        dom::ElementId {
+            id: self.state.create_element(tag),
+        }
     }
 
     fn set_text(&mut self, el: dom::ElementId, text: String) {
-        self.state.set_text(el, text);
+        self.state.set_text(el.id, text);
     }
 
     fn set_attribute(&mut self, el: dom::ElementId, name: String, value: String) {
-        self.state.set_attribute(el, name, value);
+        self.state.set_attribute(el.id, name, value);
     }
 
     fn append_child(&mut self, parent: dom::ElementId, child: dom::ElementId) {
-        self.state.append_child(parent, child);
+        self.state.append_child(parent.id, child.id);
     }
 
     fn on_click(&mut self, el: dom::ElementId, handler_id: u64) {
-        self.state.on_click(el, handler_id);
+        self.state.on_click(el.id, handler_id);
+    }
+}
+
+impl MediaHost for Host {
+    fn create_player(&mut self, cfg: media::VideoConfig) -> Result<media::PlayerHandle, String> {
+        self.state
+            .create_player(crate::stub::VideoConfig {
+                codec: cfg.codec,
+                width: cfg.width,
+                height: cfg.height,
+                bitrate: cfg.bitrate,
+            })
+            .map(|id| media::PlayerHandle { handle: id })
+    }
+
+    fn play(&mut self, handle: media::PlayerHandle) {
+        self.state.play(handle.handle);
+    }
+
+    fn pause(&mut self, handle: media::PlayerHandle) {
+        self.state.pause(handle.handle);
+    }
+
+    fn seek(&mut self, handle: media::PlayerHandle, time_ms: u64) {
+        self.state.seek(handle.handle, time_ms);
     }
 }
 
 impl NetworkHost for Host {
     fn fetch(&mut self, req: network::Request) -> Result<network::Response, String> {
-        self.state.fetch(req)
+        let neutral = Request {
+            method: req.method,
+            url: req.url,
+            headers: req.headers,
+            body: req.body,
+        };
+        self.state
+            .fetch(neutral)
+            .map(|r| network::Response {
+                status: r.status,
+                headers: r.headers,
+                body: r.body,
+            })
     }
 }
 
@@ -149,9 +191,10 @@ impl Module {
     pub fn instantiate(&self, engine: &Engine, host: Host) -> Result<Instance, wasmtime::Error> {
         let mut store = Store::new(engine, host);
         let mut linker: Linker<Host> = Linker::new(engine);
-        bindings::helix::runtime::dom::add_to_linker(&mut linker, |h: &mut Host| h)?;
-        bindings::helix::runtime::network::add_to_linker(&mut linker, |h: &mut Host| h)?;
-        bindings::helix::runtime::storage::add_to_linker(&mut linker, |h: &mut Host| h)?;
+        bindings::helix::runtime::dom::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
+        bindings::helix::runtime::network::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
+        bindings::helix::runtime::storage::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
+        bindings::helix::runtime::media::add_to_linker::<Host, Host>(&mut linker, |h: &mut Host| h)?;
         let bindings = HelixGuest::instantiate(&mut store, &self.component, &linker)?;
         Ok(Instance { bindings, store })
     }

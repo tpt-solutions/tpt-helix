@@ -4,6 +4,7 @@ members = [
     "crates/helix-runtime",
     "crates/helix-wit",
     "crates/helix-guest-example",
+    "crates/helix-migrate",
     "crates/appfront",
 ]
 
@@ -15,4 +16,5 @@ members = [
 default-members = [
     "crates/helix-runtime",
     "crates/helix-wit",
+    "crates/helix-migrate",
 ]

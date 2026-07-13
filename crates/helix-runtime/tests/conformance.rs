@@ -7,8 +7,9 @@
 
 use helix_runtime::stub::RuntimeStub;
 use helix_wit::host::exports::helix::runtime::{
-    dom::Guest as _, network::Guest as _, storage::Guest as _,
+    dom::Guest as _, media::Guest as _, network::Guest as _, storage::Guest as _,
 };
+use helix_wit::host::exports::helix::runtime::media::VideoConfig;
 use helix_wit::host::exports::helix::runtime::network::{Request, Response};
 
 fn req(url: &str) -> Request {
@@ -112,4 +113,30 @@ fn dom_on_click_registers_handler() {
 
     assert_eq!(stub.click_count(el), 2);
     assert_eq!(stub.click_handler_ids(el), Some(vec![7u64, 9]));
+}
+
+// --- media --------------------------------------------------------------
+
+#[test]
+fn media_player_lifecycle_via_stub() {
+    let _stub = RuntimeStub::new();
+    let handle = RuntimeStub::create_player(VideoConfig {
+        codec: "h264".to_string(),
+        width: 640,
+        height: 480,
+        bitrate: 1_000_000,
+    })
+    .expect("create player");
+
+    assert!(RuntimeStub::player(handle).is_some());
+    assert!(!RuntimeStub::player(handle).unwrap().playing);
+
+    RuntimeStub::play(handle);
+    assert!(RuntimeStub::player(handle).unwrap().playing);
+
+    RuntimeStub::seek(handle, 5000);
+    assert_eq!(RuntimeStub::player(handle).unwrap().position_ms, 5000);
+
+    RuntimeStub::pause(handle);
+    assert!(!RuntimeStub::player(handle).unwrap().playing);
 }

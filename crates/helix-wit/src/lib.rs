@@ -17,8 +17,8 @@
 
 // Guest bindings: a guest component imports these capabilities.
 wit_bindgen::generate!({
-    world: "helix",
-    path: "../../wit",
+    world: "helix-guest",
+    path: "wit",
     additional_derives: [PartialEq, Eq],
 });
 
@@ -28,7 +28,7 @@ wit_bindgen::generate!({
 pub mod host {
     wit_bindgen::generate!({
         world: "helix-host",
-        path: "../../wit",
+        path: "wit",
         type_section_suffix: "host",
         additional_derives: [PartialEq, Eq],
     });

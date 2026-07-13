@@ -2,6 +2,8 @@
 //! [`DisplayItem`]s: the boundary between "what to draw" (layout + style)
 //! and "how to draw it" (the [`crate::gpu`] pipeline).
 
+use lightningcss::traits::Parse;
+use lightningcss::values::color::CssColor;
 use markup5ever_rcdom::{Handle, NodeData};
 use taffy::{NodeId, TaffyTree};
 
@@ -20,26 +22,20 @@ pub struct Color {
 impl Color {
     pub const TRANSPARENT: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
 
-    /// Parses a `#rrggbb` or `#rgb` hex color; anything else is unsupported
-    /// and yields `None` (named colors, `rgb()`, etc. are future work).
-    pub fn parse_hex(value: &str) -> Option<Color> {
-        let hex = value.strip_prefix('#')?;
-        let (r, g, b) = match hex.len() {
-            6 => (
-                u8::from_str_radix(&hex[0..2], 16).ok()?,
-                u8::from_str_radix(&hex[2..4], 16).ok()?,
-                u8::from_str_radix(&hex[4..6], 16).ok()?,
-            ),
-            3 => {
-                let ch = |i: usize| -> Option<u8> {
-                    let c = hex.as_bytes()[i] as char;
-                    u8::from_str_radix(&format!("{c}{c}"), 16).ok()
-                };
-                (ch(0)?, ch(1)?, ch(2)?)
-            }
-            _ => return None,
-        };
-        Some(Color { r: r as f32 / 255.0, g: g as f32 / 255.0, b: b as f32 / 255.0, a: 1.0 })
+    /// Parses any CSS `<color>` value `lightningcss` understands (hex,
+    /// named colors like `red`, `rgb()`/`hsl()`, ...), converted to sRGB.
+    /// `currentColor` and other context-dependent colors aren't resolvable
+    /// without a cascade, so those yield `None`.
+    pub fn parse_css(value: &str) -> Option<Color> {
+        let color = CssColor::parse_string(value).ok()?;
+        let rgba = color.to_rgb().ok()?;
+        let CssColor::RGBA(rgba) = rgba else { return None };
+        Some(Color {
+            r: rgba.red as f32 / 255.0,
+            g: rgba.green as f32 / 255.0,
+            b: rgba.blue as f32 / 255.0,
+            a: rgba.alpha as f32 / 255.0,
+        })
     }
 }
 
@@ -60,7 +56,7 @@ fn background_color(element: &DomElement, rules: &[StyleRule]) -> Option<Color> 
             for declaration in rule.declarations_css.split(';') {
                 if let Some((property, value)) = declaration.split_once(':') {
                     if property.trim() == "background-color" {
-                        if let Some(parsed) = Color::parse_hex(value.trim()) {
+                        if let Some(parsed) = Color::parse_css(value.trim()) {
                             color = Some(parsed);
                         }
                     }
@@ -120,10 +116,11 @@ mod tests {
     use crate::layout::{build_layout_tree, compute};
 
     #[test]
-    fn parses_hex_colors() {
-        assert_eq!(Color::parse_hex("#ff0000"), Some(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }));
-        assert_eq!(Color::parse_hex("#0f0"), Some(Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }));
-        assert_eq!(Color::parse_hex("red"), None);
+    fn parses_css_colors() {
+        assert_eq!(Color::parse_css("#ff0000"), Some(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }));
+        assert_eq!(Color::parse_css("#0f0"), Some(Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }));
+        assert_eq!(Color::parse_css("red"), Some(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }));
+        assert_eq!(Color::parse_css("not-a-color"), None);
     }
 
     #[test]

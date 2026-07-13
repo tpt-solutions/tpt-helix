@@ -1,8 +1,12 @@
+pub mod capability;
+pub mod content;
 pub mod css;
 pub mod display_list;
 pub mod fonts;
 pub mod gpu;
 pub mod html;
+pub mod js;
+pub mod js_bridge;
 pub mod layout;
 pub mod raster;
 pub mod stub;

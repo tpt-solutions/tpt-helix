@@ -18,8 +18,10 @@ resvg = "0.44"
 wgpu = "22"
 pollster = "0.3"
 bytemuck = { version = "1", features = ["derive"] }
+rquickjs = { version = "0.6", features = ["macro"] }
 helix-wit = { path = "../helix-wit" }
 wasmtime = "46"
+sha2 = "0.10"
 
 [dev-dependencies]
 helix-wit = { path = "../helix-wit" }
