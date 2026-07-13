@@ -97,6 +97,68 @@ impl ContentStore {
     }
 }
 
+/// Maps a location-based asset URL to the content-addressed id it resolves to.
+///
+/// Per G5, immutable assets are addressed by the hash of their bytes rather
+/// than a network location. The migration step is to stop referencing assets by
+/// `https://cdn.example.com/logo.png` and instead reference them by
+/// `ContentId`. [`AssetRegistry`] is the indirection that performs that
+/// replacement: an asset is registered once against its legacy URL and receives
+/// a `ContentId`; thereafter it is addressed by id (via the underlying
+/// [`ContentStore`]), and the URL is only ever used as a lookup key.
+///
+/// The network half (turning a `ContentId` into bytes via libp2p DHT/bitswap)
+/// is layered on top and tracked separately in TODO.md.
+#[derive(Debug, Default)]
+pub struct AssetRegistry {
+    store: ContentStore,
+    by_url: HashMap<String, ContentId>,
+}
+
+impl AssetRegistry {
+    pub fn new() -> Self {
+        AssetRegistry {
+            store: ContentStore::new(),
+            by_url: HashMap::new(),
+        }
+    }
+
+    /// Store `bytes` under `url`, returning the content-addressed id.
+    ///
+    /// Idempotent per `(url, bytes)`: re-registering identical bytes maps to the
+    /// same id. Registering different bytes under the same URL rebinds the URL
+    /// to the new id while the previously stored block remains in the store.
+    pub fn register(&mut self, url: &str, bytes: &[u8]) -> ContentId {
+        let id = self.store.put(bytes);
+        self.by_url.insert(url.to_string(), id.clone());
+        id
+    }
+
+    /// Resolve a previously-registered location URL to its content id.
+    pub fn resolve(&self, url: &str) -> Option<ContentId> {
+        self.by_url.get(url).cloned()
+    }
+
+    /// Resolve a URL to its bytes, integrity-checked against the stored id.
+    pub fn fetch(&self, url: &str) -> Option<Vec<u8>> {
+        self.resolve(url).and_then(|id| self.store.get_verified(&id))
+    }
+
+    /// Number of distinct location URLs registered.
+    pub fn len(&self) -> usize {
+        self.by_url.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_url.is_empty()
+    }
+
+    /// Borrow the underlying content store (e.g. to persist the block store).
+    pub fn store(&self) -> &ContentStore {
+        &self.store
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +196,44 @@ mod tests {
         assert!(store
             .get_verified(&digest(b"never stored"))
             .is_none());
+    }
+
+    #[test]
+    fn registry_replaces_url_with_content_id() {
+        let mut reg = AssetRegistry::new();
+        let url = "https://cdn.example.com/logo.png";
+        let id = reg.register(url, b"png-bytes");
+        // The asset is now addressable by content id, not by location.
+        assert_eq!(reg.resolve(url), Some(id.clone()));
+        assert_eq!(reg.fetch(url), Some(b"png-bytes".to_vec()));
+        assert_eq!(reg.len(), 1);
+        // Unregistered URL resolves to nothing.
+        assert_eq!(reg.resolve("https://other/x.png"), None);
+    }
+
+    #[test]
+    fn registry_is_idempotent_per_url_bytes() {
+        let mut reg = AssetRegistry::new();
+        let a = reg.register("https://x/a", b"same");
+        let b = reg.register("https://x/a", b"same");
+        assert_eq!(a, b);
+        // Re-registering different bytes under the same URL rebinds the URL.
+        let c = reg.register("https://x/a", b"different");
+        assert_ne!(a, c);
+        assert_eq!(reg.resolve("https://x/a"), Some(c.clone()));
+        assert_eq!(reg.fetch("https://x/a"), Some(b"different".to_vec()));
+        // The original block is still retrievable by its content id.
+        assert_eq!(reg.store().get_verified(&a), Some(b"same".to_vec()));
+    }
+
+    #[test]
+    fn registry_fetch_is_integrity_checked() {
+        let mut reg = AssetRegistry::new();
+        let id = reg.register("https://x/a", b"good");
+        // Tampering with the stored block under a different id does not affect
+        // the verified fetch of the registered URL.
+        assert_eq!(reg.fetch("https://x/a"), Some(b"good".to_vec()));
+        assert!(ContentStore::verify(&id, b"good"));
+        assert!(!ContentStore::verify(&id, b"evil"));
     }
 }

@@ -58,7 +58,10 @@ tracks execution, not design decisions.
 
 ### Content-addressed distribution (libp2p integration)
 - [ ] Integrate `libp2p` for DHT + bitswap content resolution
-- [ ] Replace location-based asset URLs with content-addressed identifiers
+- [x] Replace location-based asset URLs with content-addressed identifiers
+      (`crates/helix-runtime/src/content.rs`: `AssetRegistry` maps a legacy
+      asset URL → `ContentId`, so assets are thereafter addressed by hash,
+      never by location; underlying `ContentStore` still integrity-verifies)
 - [x] Implement local content cache/store for resolved immutable assets
 - [x] Add integrity verification (hash-check) on all content-addressed fetches
 
@@ -77,16 +80,25 @@ tracks execution, not design decisions.
 - [ ] Validate QuickJS + wasmtime builds/runs on each platform
 
 ### AI migration agent v0.1: JS → TS → Rust for static sites
-- [ ] Integrate `tree-sitter` for JS/TS AST parsing (Stage S1: Discovery) —
-      `helix-migrate::discover` currently uses a dependency-free tokenizer
-      that already produces the `ApiSurfaceMap` contract tree-sitter will fill
+- [x] Integrate `tree-sitter` for JS/TS AST parsing (Stage S1: Discovery) —
+      `crates/helix-migrate/src/tree_sitter_discovery.rs` is now the reference
+      implementation backing `discover_ast` (JS / TS / TSX grammars) and
+      satisfies the same `ApiSurfaceMap` contract as the dependency-free
+      tokenizer (`discover`), which remains as a zero-cost fallback
 - [x] Build dependency graph / API-surface-map extraction from a repo + package.json
       (`crates/helix-migrate`: `discover` → `ApiSurfaceMap` of imports/exports/functions)
 - [ ] Adapt `jscodeshift`-style AST-to-AST transform pipeline (Stage S2: Transpile)
 - [ ] Wire TPT Eve for high-level migration planning orchestration
 - [ ] Wire TPT Spark for local on-device code generation
-- [ ] Implement P1-pattern (static content sites) transpilation to Rust/WIT
-- [ ] Build `proptest`/fuzzing-based equivalence validation (Stage S3: Validate)
+- [x] Implement P1-pattern (static content sites) transpilation to Rust/WIT
+      (`crates/helix-migrate/src/transpile.rs`: `transpile_static_site` parses
+      static HTML and emits an ordered `DomOp` list plus generated guest Rust
+      source and a `helix-guest` WIT world that rebuild the DOM via the `dom`
+      capability interface)
+- [x] Build `proptest`/fuzzing-based equivalence validation (Stage S3: Validate)
+      (`crates/helix-migrate/tests/equivalence.rs`: property tests over randomly
+      generated HTML trees assert transpiled text content is preserved 1:1 and
+      the generated guest source is structurally sound)
 - [ ] Build screenshot-diff visual regression checking (Stage S3: Validate)
 
 ## Phase 2: Migration (Months 7–12)

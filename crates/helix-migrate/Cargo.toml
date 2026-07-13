@@ -9,7 +9,14 @@ edition = "2024"
 # the orchestration layer can plan a migration before any transpilation.
 #
 # The reference implementation is backed by `tree-sitter` for full AST
-# fidelity; this initial version uses a dependency-free tokenizer so the
-# discovery contract is exercised in tests without pulling in native grammar
-# builds. The `ApiSurfaceMap` shape is the stable interface `tree-sitter` will
-# populate.
+# fidelity (see `tree_sitter_discovery`); a dependency-free tokenizer
+# (`discover`) remains as a zero-cost fallback / smoke path. Both produce the
+# same stable `ApiSurfaceMap` contract.
+
+[dependencies]
+tree-sitter = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+
+[dev-dependencies]
+proptest = "1"

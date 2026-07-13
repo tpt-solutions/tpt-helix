@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 70af31bab98ab5ea21eb6e98d0bc8e693ccb9b2892d1730466bfdd634c40215d # shrinks to tree = Elem("div", [], [Elem("div", [], [Elem("div", [], [Text("a"), Text("a")])])])

@@ -5,10 +5,17 @@
 //! functions. The orchestration layer (TPT Eve) consumes this map to plan a
 //! migration before any transpilation (Stage S2) happens.
 //!
-//! The extractor is intentionally dependency-free and token-based. It is a
-//! correct, testable *approximation* of a full AST parse; the contract
-//! ([`ApiSurfaceMap`]) is the stable surface that a `tree-sitter`-backed
-//! implementation will satisfy with higher fidelity.
+//! Two extractors satisfy the same stable contract ([`ApiSurfaceMap`]):
+//! * [`discover`] — a dependency-free, token-based scanner. Correct and
+//!   testable, but blind to strings/comments; kept as a zero-cost fallback.
+//! * [`tree_sitter_discovery::discover_ast`] — the reference implementation,
+//!   backed by `tree-sitter` grammars (JavaScript / TypeScript / TSX) for full
+//!   AST fidelity.
+
+pub mod tree_sitter_discovery;
+pub mod transpile;
+
+pub use tree_sitter_discovery::{discover_ast, discover_js, discover_ts, discover_tsx, SourceLang};
 
 /// A module a source file imports from.
 #[derive(Debug, Clone, PartialEq, Eq)]
