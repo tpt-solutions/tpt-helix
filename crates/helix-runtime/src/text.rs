@@ -76,4 +76,44 @@ mod tests {
         );
         assert!(lines.len() > 1, "expected wrapping to produce multiple lines");
     }
+
+    #[test]
+    fn shapes_cjk_text_into_glyphs() {
+        // CJK has no spaces, so shaping must still produce one glyph run per
+        // character and not collapse the line.
+        let lines = shape_text(load_system_fonts(), "汉字测试", 16.0, 20.0, 1000.0);
+        assert_eq!(lines.len(), 1);
+        assert!(!lines[0].glyphs.is_empty());
+        assert!(lines[0].width > 0.0);
+    }
+
+    #[test]
+    fn longer_text_produces_more_glyphs_than_shorter() {
+        let short = shape_text(load_system_fonts(), "hi", 16.0, 20.0, 1000.0);
+        let long = shape_text(
+            load_system_fonts(),
+            "the quick brown fox jumps",
+            16.0,
+            20.0,
+            1000.0,
+        );
+        let short_glyphs: usize = short.iter().map(|l| l.glyphs.len()).sum();
+        let long_glyphs: usize = long.iter().map(|l| l.glyphs.len()).sum();
+        assert!(long_glyphs > short_glyphs, "more text should yield more glyphs");
+    }
+
+    #[test]
+    fn accented_and_ligature_text_shapes() {
+        // Diacritics / ligatures must not crash shaping and must produce output.
+        let lines = shape_text(load_system_fonts(), "café ﬁn", 16.0, 20.0, 1000.0);
+        assert_eq!(lines.len(), 1);
+        assert!(!lines[0].glyphs.is_empty());
+    }
+
+    #[test]
+    fn empty_text_yields_no_glyphs() {
+        let lines = shape_text(load_system_fonts(), "", 16.0, 20.0, 1000.0);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].glyphs.is_empty());
+    }
 }

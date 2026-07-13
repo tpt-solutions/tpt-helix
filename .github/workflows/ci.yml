@@ -56,3 +56,52 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Build guest component (wasm32)
         run: cargo build -p helix-guest-example --target wasm32-unknown-unknown
+
+  # Single-platform build (Phase 0): target Linux x86_64. Builds a release
+  # binary for the AppFront host (the windowed, wgpu-backed runnable surface),
+  # runs the full headless smoke-test suite in release mode, and packages the
+  # binary as a downloadable artifact.
+  linux-x86_64:
+    name: linux x86_64 release + package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Core runtime + capability broker + WIT bindings + migration agent.
+      # The `--release` profile exercises the `[profile.release]` settings.
+      - name: Build core (release)
+        run: cargo build --release
+
+      # The runnable host binary. Building it on Linux validates the wgpu
+      # backend compiles against the Linux/Vulkan build path. NOTE: actually
+      # *presenting* a frame needs a GPU; this job only proves the binary
+      # links and is packaged. See the GPU-rasterization verification note in
+      # TODO.md before claiming the Vulkan render path is confirmed on target
+      # Linux GPU drivers.
+      - name: Build AppFront host binary (release, window feature)
+        run: cargo build -p appfront --features window --release
+
+      # Headless smoke test: static render pipeline (HTML→CSS→layout→display
+      # list), WIT conformance, and the wasmtime "hello DOM" component all run
+      # without a display/GPU, so they exercise the shipped runtime on Linux.
+      - name: Smoke test (release)
+        run: cargo test --release
+
+      - name: Package runnable binary
+        run: |
+          mkdir -p dist
+          cp target/release/appfront dist/helix-appfront-x86_64-unknown-linux-gnu
+          strip dist/helix-appfront-x86_64-unknown-linux-gnu || true
+
+      - name: Upload Linux x86_64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-appfront-linux-x86_64
+          path: dist/helix-appfront-x86_64-unknown-linux-gnu
+          if-no-files-found: error

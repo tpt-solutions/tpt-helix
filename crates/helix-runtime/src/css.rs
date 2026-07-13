@@ -158,8 +158,12 @@ pub struct StyleRule {
 /// rule's selector text with `selectors`, discarding rules whose selectors
 /// this runtime doesn't support yet (e.g. pseudo-classes).
 pub fn parse_stylesheet(source: &str) -> Vec<StyleRule> {
-    let stylesheet =
-        StyleSheet::parse(source, ParserOptions::default()).expect("valid CSS stylesheet");
+    // Malformed CSS must not take down the renderer: `lightningcss` returns an
+    // error rather than panicking, and we degrade gracefully to "no rules" so a
+    // bad stylesheet simply contributes no styling.
+    let Ok(stylesheet) = StyleSheet::parse(source, ParserOptions::default()) else {
+        return Vec::new();
+    };
 
     let mut rules = Vec::new();
     for rule in &stylesheet.rules.0 {
@@ -396,6 +400,7 @@ pub fn matches(selector: &Selector<HelixSelectorImpl>, element: &DomElement) -> 
 mod tests {
     use super::*;
     use crate::html::parse_html;
+    use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
     fn root_child_element(dom: &markup5ever_rcdom::RcDom) -> DomElement {
         fn find(handle: &Handle) -> Option<Handle> {
@@ -442,5 +447,108 @@ mod tests {
             .slice()
             .iter()
             .any(|s| matches(s, &element)));
+    }
+
+    #[test]
+    fn matches_id_selector() {
+        let dom = parse_html(r#"<html><body><div id="main">hi</div></body></html>"#);
+        let rules = parse_stylesheet("#main { color: red; }");
+        assert!(!rules.is_empty(), "id selector should parse");
+        let element = root_child_element(&dom);
+        assert!(rules[0].selectors.slice().iter().any(|s| matches(s, &element)));
+    }
+
+    #[test]
+    fn matches_attribute_selector() {
+        let dom = parse_html(r#"<html><body><input type="text"><input type="password"></body></html>"#);
+        let rules = parse_stylesheet(r#"input[type="password"] { color: red; }"#);
+        // Two input elements: find each and assert only the password one matches.
+        let mut inputs = Vec::new();
+        find_all(&dom.document, "input", &mut inputs);
+
+        let password = inputs
+            .iter()
+            .find(|el| DomElement(el.clone()).attr("type").as_deref() == Some("password"))
+            .expect("password input");
+        let text = inputs
+            .iter()
+            .find(|el| DomElement(el.clone()).attr("type").as_deref() == Some("text"))
+            .expect("text input");
+
+        assert!(rules[0]
+            .selectors
+            .slice()
+            .iter()
+            .any(|s| matches(s, &DomElement(password.clone()))));
+        assert!(!rules[0]
+            .selectors
+            .slice()
+            .iter()
+            .any(|s| matches(s, &DomElement(text.clone()))));
+    }
+
+    #[test]
+    fn matches_descendant_combinator() {
+        let dom = parse_html(
+            r#"<html><body><section><p>deep</p></section><p>shallow</p></body></html>"#,
+        );
+        let rules = parse_stylesheet("section p { color: red; }");
+        let mut ps = Vec::new();
+        find_all(&dom.document, "p", &mut ps);
+        assert_eq!(ps.len(), 2);
+        let deep = ps[0].clone();
+        let shallow = ps[1].clone();
+        assert!(rules[0]
+            .selectors
+            .slice()
+            .iter()
+            .any(|s| matches(s, &DomElement(deep))));
+        assert!(!rules[0]
+            .selectors
+            .slice()
+            .iter()
+            .any(|s| matches(s, &DomElement(shallow))));
+    }
+
+    #[test]
+    fn unsupported_pseudo_class_is_dropped_not_crashed() {
+        // `:hover` is not yet supported; the rule is skipped so matching stays
+        // sound rather than panicking or silently matching everything.
+        let dom = parse_html(r#"<html><body><a href="x">hi</a></body></html>"#);
+        let rules = parse_stylesheet("a:hover { color: red; }");
+        assert!(rules.is_empty(), "unsupported pseudo-class rules are dropped");
+        assert_eq!(tags(&dom), vec!["html", "body", "a"]);
+    }
+
+    #[test]
+    fn malformed_css_yields_no_rules() {
+        // Unbalanced braces / garbage must degrade to no rules, not panic.
+        assert!(parse_stylesheet("{ color: red;;; @@@ not css {").is_empty());
+        assert!(parse_stylesheet("div { color: }").is_empty());
+    }
+
+    fn find_all(handle: &Handle, tag: &str, out: &mut Vec<Handle>) {
+        if let NodeData::Element { name, .. } = &handle.data {
+            if &*name.local == tag {
+                out.push(handle.clone());
+            }
+        }
+        for child in handle.children.borrow().iter() {
+            find_all(child, tag, out);
+        }
+    }
+
+    fn tags(dom: &markup5ever_rcdom::RcDom) -> Vec<String> {
+        let mut out = Vec::new();
+        fn walk(handle: &Handle, out: &mut Vec<String>) {
+            if let NodeData::Element { name, .. } = &handle.data {
+                out.push(name.local.to_string());
+            }
+            for child in handle.children.borrow().iter() {
+                walk(child, out);
+            }
+        }
+        walk(&dom.document, &mut out);
+        out
     }
 }

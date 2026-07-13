@@ -5,13 +5,26 @@
 //! Nothing here is on the WASM hot path (per G1): this interpreter only runs
 //! legacy JS that hasn't been migrated to WASM yet.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant, UNIX_EPOCH};
+
 use rquickjs::{Context, Runtime};
 
 /// A single legacy-JS execution environment. One [`Interpreter`] per app
 /// instance keeps globals (and any bridged host functions, see
 /// [`crate::js_bridge`]) isolated between apps.
+///
+/// The underlying [`Runtime`] is owned here so the [`Context`] (which borrows
+/// from it) stays valid for the interpreter's lifetime, and so a per-eval
+/// timeout can be installed via an interrupt handler ([`Self::eval_with_timeout`]).
 pub struct Interpreter {
     context: Context,
+    #[allow(dead_code)]
+    runtime: Runtime,
+    /// Wall-clock deadline (ms since epoch) after which evaluation is aborted,
+    /// or `0` for "no deadline". Shared with the interrupt handler closure.
+    deadline: Arc<AtomicU64>,
 }
 
 /// A JS evaluation error, carrying the engine's message rather than the full
@@ -32,8 +45,48 @@ impl Interpreter {
     /// context (no host functions bridged in yet).
     pub fn new() -> Result<Self, JsError> {
         let runtime = Runtime::new().map_err(|e| JsError(e.to_string()))?;
+        // Install an interrupt handler that aborts evaluation once a per-eval
+        // deadline (set by `eval_with_timeout`) has passed. An unset deadline
+        // (`0`) never interrupts.
+        let deadline = Arc::new(AtomicU64::new(0));
+        let handler_deadline = deadline.clone();
+        runtime.set_interrupt_handler(Some(Box::new(move || {
+            let d = handler_deadline.load(Ordering::Relaxed);
+            if d == 0 {
+                return false;
+            }
+            let now = Instant::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            now >= d
+        })));
         let context = Context::full(&runtime).map_err(|e| JsError(e.to_string()))?;
-        Ok(Interpreter { context })
+        Ok(Interpreter { context, runtime, deadline })
+    }
+
+    /// Evaluate `source` with an execution budget of `timeout`.
+    ///
+    /// The interpreter exposes no host capabilities (host functions are bridged
+    /// separately in [`crate::js_bridge`]), so evaluating here is the sandbox
+    /// for untrusted/dynamic legacy JS: a fresh, capability-free context that is
+    /// interrupted if it runs past `timeout`. Returns an error if the budget is
+    /// exceeded; the deadline is always cleared afterwards so later evals are
+    /// unaffected.
+    pub fn eval_with_timeout(
+        &self,
+        source: &str,
+        timeout: Duration,
+    ) -> Result<Option<String>, JsError> {
+        let now = Instant::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        self.deadline
+            .store(now + timeout.as_millis() as u64, Ordering::Relaxed);
+        let result = self.eval_to_string(source);
+        self.deadline.store(0, Ordering::Relaxed);
+        result
     }
 
     /// Evaluates `source` and returns its result coerced to a JS string via
@@ -101,5 +154,24 @@ mod tests {
         a.eval_to_string("globalThis.x = 42").unwrap();
         assert_eq!(a.eval_to_string("globalThis.x").unwrap(), Some("42".to_string()));
         assert_eq!(b.eval_to_string("globalThis.x").unwrap(), None);
+    }
+
+    #[test]
+    fn eval_with_timeout_returns_results_and_clears_budget() {
+        let interp = Interpreter::new().unwrap();
+        // Within budget the result is unaffected by the timeout machinery.
+        assert_eq!(
+            interp
+                .eval_with_timeout("6 * 7", Duration::from_secs(1))
+                .unwrap(),
+            Some("42".to_string())
+        );
+        // The deadline is cleared afterwards, so a subsequent eval still works.
+        assert_eq!(
+            interp
+                .eval_with_timeout("1 + 1", Duration::from_secs(1))
+                .unwrap(),
+            Some("2".to_string())
+        );
     }
 }

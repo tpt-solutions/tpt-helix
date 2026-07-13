@@ -18,3 +18,14 @@ default-members = [
     "crates/helix-wit",
     "crates/helix-migrate",
 ]
+
+# Release build profile used for the packaged Linux x86_64 binary and CI
+# release runs. `lto = "thin"` keeps link time reasonable while still
+# shrinking the final binary; `codegen-units = 1` maximizes per-crate
+# optimization; `strip = true` drops debug symbols from the shipped artifact.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+strip = true

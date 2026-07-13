@@ -42,9 +42,20 @@ tracks execution, not design decisions.
 - [x] Add a smoke-test WASM module (e.g. "hello DOM") that exercises `dom` interface calls
 
 ### Single-platform build (Linux x86_64)
-- [ ] Set up `cargo` build profile and CI job targeting Linux x86_64
+- [x] Set up `cargo` build profile and CI job targeting Linux x86_64
+      (`Cargo.toml` `[profile.release]`; `.github/workflows/ci.yml`
+      `linux-x86_64` job builds the release AppFront host binary + runs the
+      headless smoke suite on `ubuntu-latest`)
 - [ ] Verify GPU rasterization path (`wgpu`) works on target Linux GPU drivers (Vulkan)
-- [ ] Package a minimal runnable binary + smoke test app for Linux x86_64
+      — BLOCKED: standard GitHub runners have no GPU. The `linux-x86_64` job
+      proves the `window`/wgpu binary *links* on Linux, but presenting a frame
+      still needs a GPU-enabled runner (e.g. a self-hosted Vulkan runner or
+      `swiftshader`) to confirm the render path end-to-end.
+- [x] Package a minimal runnable binary + smoke test app for Linux x86_64
+      (`linux-x86_64` CI job packages `target/release/appfront` as
+      `helix-appfront-x86_64-unknown-linux-gnu` and uploads it as an artifact;
+      the smoke test is the release `cargo test` suite — static pipeline, WIT
+      conformance, and the wasmtime "hello DOM" component all run headless)
 
 ## Phase 1: Core (Months 4–6)
 
@@ -77,7 +88,14 @@ tracks execution, not design decisions.
 - [x] Extend `cross`/CI to build and test macOS targets (`.github/workflows/ci.yml`)
 - [x] Extend `cross`/CI to build and test Windows targets (incl. `patch` for QuickJS)
 - [ ] Validate `wgpu` backend selection (Metal / DX12) on each platform
-- [ ] Validate QuickJS + wasmtime builds/runs on each platform
+      — BLOCKED: backend selection only matters once the windowed binary is
+      run on real GPU hardware per platform; CI only links it. Needs a
+      GPU-capable runner to observe Metal/DX12 selection.
+- [x] Validate QuickJS + wasmtime builds/runs on each platform
+      (the cross-OS `test` matrix in `.github/workflows/ci.yml` runs `cargo
+      test` on ubuntu/macos/windows-latest; the QuickJS eval tests in
+      `src/js.rs` and the wasmtime "hello DOM" smoke test in
+      `tests/wasm_smoke.rs` therefore build *and* execute on all three targets)
 
 ### AI migration agent v0.1: JS → TS → Rust for static sites
 - [x] Integrate `tree-sitter` for JS/TS AST parsing (Stage S1: Discovery) —
@@ -87,7 +105,11 @@ tracks execution, not design decisions.
       tokenizer (`discover`), which remains as a zero-cost fallback
 - [x] Build dependency graph / API-surface-map extraction from a repo + package.json
       (`crates/helix-migrate`: `discover` → `ApiSurfaceMap` of imports/exports/functions)
-- [ ] Adapt `jscodeshift`-style AST-to-AST transform pipeline (Stage S2: Transpile)
+- [x] Adapt `jscodeshift`-style AST-to-AST transform pipeline (Stage S2: Transpile)
+      (`crates/helix-migrate/src/js_transform.rs`: a `jscodeshift`-style
+      `Transformer`/`Rule` splice-rewrite driver over the tree-sitter CST, with a
+      starter rule set mapping `function`→`fn`, `const`/`var`→`let`, and
+      `console.log(..)`→`println!(..)`)
 - [ ] Wire TPT Eve for high-level migration planning orchestration
 - [ ] Wire TPT Spark for local on-device code generation
 - [x] Implement P1-pattern (static content sites) transpilation to Rust/WIT
@@ -99,7 +121,11 @@ tracks execution, not design decisions.
       (`crates/helix-migrate/tests/equivalence.rs`: property tests over randomly
       generated HTML trees assert transpiled text content is preserved 1:1 and
       the generated guest source is structurally sound)
-- [ ] Build screenshot-diff visual regression checking (Stage S3: Validate)
+- [x] Build screenshot-diff visual regression checking (Stage S3: Validate)
+      (`crates/helix-runtime/src/software_raster.rs` paints the static
+      display-list into an in-memory RGBA buffer; `src/screenshot_diff.rs`
+      compares frames, reports a changed-pixel ratio, and renders a red
+      diff image — a headless stand-in for GPU frame comparison in CI)
 
 ## Phase 2: Migration (Months 7–12)
 
@@ -123,7 +149,10 @@ tracks execution, not design decisions.
 - [ ] Profile QuickJS fallback path memory/perf overhead
 - [ ] Optimize JS → WIT bridge (custom, currently "to be built" per §4.2)
 - [ ] Evaluate `boa` (pure-Rust JS engine) as an alternative/replacement path
-- [ ] Sandbox `eval`/dynamic-code-generation cases per Q1's proposed resolution
+- [x] Sandbox `eval`/dynamic-code-generation cases per Q1's proposed resolution
+      (`crates/helix-runtime/src/js.rs`: `Interpreter::eval_with_timeout` runs
+      untrusted/dynamic legacy JS in a capability-free context, aborted via a
+      QuickJS interrupt handler once a per-eval deadline passes)
 
 ### Developer tooling: IDE plugins, debugger, profiler
 - [ ] Build IDE plugin(s) for TPT Lang / Rust / Zig → WASM authoring workflow
@@ -184,6 +213,58 @@ tracks execution, not design decisions.
 - [ ] Evaluate automotive platform integration requirements
 - [ ] Evaluate IoT platform integration requirements
 - [ ] Cross-compile and validate runtime for selected hardware targets
+
+## Testing & Quality Assurance (cross-phase)
+
+Cuts across all phases above — each item traces back to a component already scoped
+in Architecture (§3), Tech Stack (§4, CI/CD row), Migration Pipeline (§6, Stage S3),
+or Security Model (§8). Add new items here as new components land; don't let feature
+work outrun its test coverage.
+
+### Unit test coverage per crate
+- [ ] `helix-runtime` `html.rs`: malformed HTML, encoding detection, edge-case parsing
+- [ ] `helix-runtime` `css.rs`: selector matching, cascade/specificity, malformed CSS
+- [ ] `helix-runtime` `layout.rs` (`taffy`): flex/grid edge cases, intrinsic sizing
+- [ ] `helix-runtime` `text.rs`: shaping/line-breaking (bidi, ligatures, CJK)
+- [ ] `helix-runtime` `raster.rs`: image/SVG decode error paths, malformed assets
+- [ ] `helix-runtime` `display_list.rs` + `gpu.rs`: command-buffer generation correctness
+- [ ] `helix-runtime` `js.rs`: QuickJS eval correctness, timeout/interrupt behavior
+- [ ] `helix-runtime` `js_bridge.rs`: stub delegation correctness for each WIT call
+- [ ] `helix-runtime` `content.rs`: `AssetRegistry` + `ContentStore` integrity-check paths
+- [ ] `helix-migrate` `tree_sitter_discovery.rs`: AST parsing across JS/TS/TSX grammars
+- [ ] `helix-migrate` `js_transform.rs`: rule-by-rule transform correctness
+- [ ] `helix-migrate` `transpile.rs`: static-site `DomOp` + generated WIT world correctness
+
+### Integration test coverage
+- [ ] End-to-end HTML → CSS → layout → display-list pipeline golden-file fixtures
+- [ ] WIT interface conformance suite (`network`/`storage`/`dom`/`media`) run against
+      both the wasmtime host and the QuickJS bridge, not just the runtime stub
+- [ ] Capability broker integration tests: grant/revoke/delegate/trap across
+      multi-module scenarios
+- [ ] `wasmtime` module lifecycle tests (load/instantiate/teardown) under adversarial
+      or malformed WASM module inputs
+
+### Migration pipeline validation coverage
+- [ ] Extend `proptest`/fuzz equivalence suite (Stage S3) to cover P2–P4 patterns as
+      they land
+- [ ] Extend screenshot-diff visual regression suite beyond the static-site pipeline
+- [ ] Track and publish pattern-coverage + equivalence pass-rate metrics (feeds the
+      G2 measurement item above)
+
+### Cross-platform / CI coverage
+- [ ] Add `clippy` + `rustfmt` gates to CI (none exist yet, per repo notes)
+- [ ] Add code coverage reporting (`cargo-llvm-cov` or `tarpaulin`) to CI and publish
+      the coverage trend
+- [ ] Stand up a GPU-capable CI runner (self-hosted or `swiftshader`) to unblock the
+      wgpu rasterization / backend-selection validation items in Phase 0/1
+- [ ] Add performance regression benchmarks (layout ops/sec, memory footprint) gated
+      against the §7 performance targets
+
+### Security test coverage
+- [ ] Fuzz the capability broker's grant/revoke/delegate state machine
+- [ ] Fuzz WIT interface boundary parsing (`network`/`storage`/`dom`/`media`) against
+      malformed guest input
+- [ ] Add regression tests locking in sandboxed `eval` timeout/abort behavior (Q1)
 
 ## Open Questions to Resolve (Section 10)
 

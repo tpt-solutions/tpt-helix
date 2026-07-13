@@ -175,4 +175,89 @@ mod tests {
         assert_eq!(first.location.x, 0.0);
         assert_eq!(second.location.x, 50.0);
     }
+
+    #[test]
+    fn percentage_width_resolves_against_viewport() {
+        let dom = parse_html(r#"<html><body><div class="half"></div></body></html>"#);
+        let rules = parse_stylesheet("div.half { width: 50%; height: 10px; }");
+        let mut layout = build_layout_tree(&dom, &rules).expect("build layout tree");
+        compute(&mut layout, 800.0, 600.0).expect("compute layout");
+
+        fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
+            let handle = tree.get_node_context(node)?;
+            if let NodeData::Element { attrs, .. } = &handle.data {
+                if attrs.borrow().iter().any(|a| &*a.value == target) {
+                    return Some(node);
+                }
+            }
+            tree.children(node).ok()?.into_iter().find_map(|c| find(tree, c, target))
+        }
+
+        let half = find(&layout.tree, layout.root, "half").expect("half node");
+        let half_layout = layout.tree.layout(half).expect("half layout");
+        // 50% of an 800px viewport.
+        assert_eq!(half_layout.size.width, 400.0);
+    }
+
+    #[test]
+    fn cascade_last_matching_rule_wins() {
+        let dom = parse_html(r#"<html><body><div class="box"></div></body></html>"#);
+        // Two rules match; the later one must win (minimal cascade order).
+        let rules = parse_stylesheet(
+            "div.box { width: 100px; } \
+             div.box { width: 250px; }",
+        );
+        let mut layout = build_layout_tree(&dom, &rules).expect("build layout tree");
+        compute(&mut layout, 800.0, 600.0).expect("compute layout");
+
+        fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
+            let handle = tree.get_node_context(node)?;
+            if let NodeData::Element { attrs, .. } = &handle.data {
+                if attrs.borrow().iter().any(|a| &*a.value == target) {
+                    return Some(node);
+                }
+            }
+            tree.children(node).ok()?.into_iter().find_map(|c| find(tree, c, target))
+        }
+
+        let box_ = find(&layout.tree, layout.root, "box").expect("box node");
+        let box_layout = layout.tree.layout(box_).expect("box layout");
+        assert_eq!(box_layout.size.width, 250.0);
+    }
+
+    #[test]
+    fn grid_container_stacks_children_in_rows() {
+        let dom = parse_html(
+            r#"<html><body><div class="grid">
+                 <div class="cell"></div>
+                 <div class="cell"></div>
+               </div></body></html>"#,
+        );
+        let rules = parse_stylesheet(
+            "div.grid { display: grid; width: 200px; height: 200px; } \
+             div.cell { width: 50px; height: 50px; }",
+        );
+        let mut layout = build_layout_tree(&dom, &rules).expect("build layout tree");
+        compute(&mut layout, 800.0, 600.0).expect("compute layout");
+
+        fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
+            let handle = tree.get_node_context(node)?;
+            if let NodeData::Element { attrs, .. } = &handle.data {
+                if attrs.borrow().iter().any(|a| &*a.value == target) {
+                    return Some(node);
+                }
+            }
+            tree.children(node).ok()?.into_iter().find_map(|c| find(tree, c, target))
+        }
+
+        let grid = find(&layout.tree, layout.root, "grid").expect("grid node");
+        let children = layout.tree.children(grid).expect("grid children");
+        assert_eq!(children.len(), 2);
+        // With no explicit columns, grid auto-places items in a single column,
+        // so the second cell sits below the first.
+        let first = layout.tree.layout(children[0]).expect("first cell");
+        let second = layout.tree.layout(children[1]).expect("second cell");
+        assert_eq!(first.location.x, second.location.x);
+        assert!(second.location.y > first.location.y);
+    }
 }

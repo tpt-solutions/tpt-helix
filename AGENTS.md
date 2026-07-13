@@ -4,7 +4,7 @@ Compact guidance for working in the TPT Helix repo.
 
 ## What this repo is
 - A Rust **cargo workspace** (resolver 2) building the Helix Runtime, a WASM-native web platform (successor to the browser).
-- Currently a skeleton: one workspace member, `crates/helix-runtime` (edition 2024), with only HTML parsing wired up so far (`html5ever`).
+- Five workspace members: `helix-runtime` (core: HTML/CSS/layout/text/raster/gpu/JS-fallback/WASM-host + capability broker + content-addressed store), `helix-wit` (generated WIT bindings), `helix-guest-example` (wasm32 guest component), `helix-migrate` (AI migration agent, tree-sitter-based), and `appfront` (egui + taffy native window host).
 
 ## Source of truth
 - `spec.txt` is the **living design specification** (v0.1). If scope changes, update `spec.txt` *first*, then reflect it in `TODO.md`. (`TODO.md` is a derived execution checklist, not a design doc.)
@@ -14,6 +14,12 @@ Compact guidance for working in the TPT Helix repo.
 ## Commands
 - Build: `cargo build` (or `cargo build -p helix-runtime`).
 - Test: `cargo test` (or `cargo test -p helix-runtime`).
+- Release/package (Linux x86_64): see the `linux-x86_64` job in `.github/workflows/ci.yml` —
+  it builds the windowed AppFront host binary (`cargo build -p appfront --features window --release`),
+  runs the headless smoke suite (`cargo test --release`), and uploads the binary as an artifact.
+- The `appfront` windowed binary needs a GPU/display to present; run it with
+  `cargo run -p appfront --features window`. The headless `cargo test` suite is the
+  CI smoke test and exercises the static render pipeline without a GPU.
 - No CI, lint, format, or pre-commit config exists yet — there is no `clippy`/`rustfmt`/fmt-check gate to satisfy. Don't assume one.
 - No README or docs site yet.
 

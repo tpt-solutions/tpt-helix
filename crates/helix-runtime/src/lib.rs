@@ -9,6 +9,8 @@ pub mod js;
 pub mod js_bridge;
 pub mod layout;
 pub mod raster;
+pub mod screenshot_diff;
+pub mod software_raster;
 pub mod stub;
 pub mod text;
 pub mod wasm;

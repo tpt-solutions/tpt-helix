@@ -74,4 +74,33 @@ mod tests {
         let idx = ((5 * 10 + 5) * 4) as usize;
         assert_eq!(&decoded.rgba8[idx..idx + 4], &[255, 0, 0, 255]);
     }
+
+    #[test]
+    fn decode_rejects_garbage_bytes() {
+        // Random non-image bytes are not a recognized raster format.
+        assert!(decode_raster(b"this is definitely not an image").is_err());
+    }
+
+    #[test]
+    fn decode_rejects_truncated_png() {
+        // A valid PNG header but a truncated body fails to decode.
+        let mut png = Vec::new();
+        {
+            let img = image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 0, 255]));
+            image::DynamicImage::ImageRgba8(img)
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+        }
+        // Keep only the first 8 bytes (signature) — the rest is missing.
+        let truncated = &png[..8];
+        assert!(decode_raster(truncated).is_err());
+    }
+
+    #[test]
+    fn rasterize_malformed_svg_returns_none() {
+        // Unparseable SVG yields no tree, so rasterization returns None rather
+        // than panicking.
+        assert!(rasterize_svg("not <svg> at all <<<", 10, 10).is_none());
+        assert!(rasterize_svg("<svg><rect", 10, 10).is_none());
+    }
 }
