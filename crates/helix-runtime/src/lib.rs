@@ -1,5 +1,13 @@
+pub mod css;
+pub mod display_list;
+pub mod fonts;
+pub mod gpu;
 pub mod html;
+pub mod layout;
+pub mod raster;
 pub mod stub;
+pub mod text;
+pub mod wasm;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

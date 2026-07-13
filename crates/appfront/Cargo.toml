@@ -1,0 +1,25 @@
+[package]
+name = "appfront"
+version = "0.1.0"
+edition = "2024"
+
+# `window` pulls in `eframe` (winit + wgpu/glow) to open a real native window.
+# Leaving it off keeps the bridge + layout logic headless and cheap to build/test.
+[features]
+default = []
+window = ["dep:eframe"]
+
+[dependencies]
+egui = "0.29"
+taffy = { version = "0.5", features = ["std"] }
+helix-runtime = { path = "../helix-runtime" }
+markup5ever_rcdom = "0.39.0"
+eframe = { version = "0.29", optional = true }
+
+[dev-dependencies]
+helix-runtime = { path = "../helix-runtime" }
+
+[[bin]]
+name = "appfront"
+path = "src/bin/appfront.rs"
+required-features = ["window"]

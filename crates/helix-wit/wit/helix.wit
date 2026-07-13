@@ -79,8 +79,12 @@ world helix-runtime {
 
 // A guest module *imports* the same interfaces. `wit_bindgen` generates the
 // call shims (`helix::runtime::network::fetch`, etc.) a guest compiles against.
+// It also *exports* a `run` entry point that the host invokes after
+// instantiation to drive the module (see the smoke-test guest in
+// `crates/helix-guest-example` and the wasmtime host in `crates/helix-runtime`).
 world helix-guest {
     import network;
     import storage;
     import dom;
+    export run: func();
 }

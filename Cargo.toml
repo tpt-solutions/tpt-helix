@@ -4,10 +4,14 @@ members = [
     "crates/helix-runtime",
     "crates/helix-wit",
     "crates/helix-guest-example",
+    "crates/appfront",
 ]
 
 # The guest example only builds for `wasm32-unknown-unknown` (its bindings
 # reference wasm imports), so exclude it from the default host build.
+# `appfront` is also excluded from the default build because its `window`
+# feature (eframe + wgpu) is heavy; build it explicitly with
+# `cargo build -p appfront` / `cargo run -p appfront --features window`.
 default-members = [
     "crates/helix-runtime",
     "crates/helix-wit",

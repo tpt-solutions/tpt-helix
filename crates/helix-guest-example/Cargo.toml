@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
-wit-bindgen = { version = "0.41", features = ["realloc"] }
-wit-bindgen-rt = "0.41"
+wit-bindgen = { version = "0.59", features = ["macros", "realloc"] }

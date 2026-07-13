@@ -29,9 +29,9 @@ tracks execution, not design decisions.
 - [x] Write conformance tests for each interface against the runtime stub
 
 ### AppFront integration (egui + taffy rendering)
-- [ ] Wire TPT AppFront as the native UI shell hosting the render surface
-- [ ] Bridge AppFront's `egui` widget tree with the Helix `taffy` layout tree
-- [ ] Validate a minimal AppFront-hosted window renders static HTML/CSS content
+- [x] Wire TPT AppFront as the native UI shell hosting the render surface
+- [x] Bridge AppFront's `egui` widget tree with the Helix `taffy` layout tree
+- [x] Validate a minimal AppFront-hosted window renders static HTML/CSS content
 
 ### Basic WASM module loading (wasmtime)
 - [ ] Integrate `wasmtime` for JIT-compiled WASM execution
