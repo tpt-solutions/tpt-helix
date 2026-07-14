@@ -406,7 +406,9 @@ pub fn matches(selector: &Selector<HelixSelectorImpl>, element: &DomElement) -> 
 mod tests {
     use super::*;
     use crate::html::parse_html;
+    use crate::layout::{build_layout_tree, compute};
     use markup5ever_rcdom::{Handle, NodeData};
+    use taffy::{NodeId, TaffyTree};
 
     fn root_child_element(dom: &markup5ever_rcdom::RcDom) -> DomElement {
         fn find(handle: &Handle) -> Option<Handle> {
@@ -551,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_css_yields_no_rules() {
+    fn malformed_css_yield_no_rules() {
         // Unbalanced braces / garbage must degrade to no rules, not panic.
         assert!(parse_stylesheet("{ color: red;;; @@@ not css {").is_empty());
         // A rule with an unparseable declaration keeps its selector rule but
@@ -561,6 +563,42 @@ mod tests {
         assert!(
             !lenient.is_empty(),
             "selector rule survives while the bad declaration is dropped"
+        );
+    }
+
+    #[test]
+    fn higher_specificity_overrides_source_order() {
+        // Specificity order is #id (1,0,0) > .class (0,1,0) > tag (0,0,1). The
+        // id rule appears FIRST in source, so this only passes if matching rules
+        // are ordered by specificity (descending) rather than raw source order.
+        let dom =
+            parse_html(r#"<html><body><div class="x" id="y">hi</div></body></html>"#);
+        let rules = parse_stylesheet(
+            "#y { width: 30px; } \
+             .x { width: 20px; } \
+             div { width: 10px; }",
+        );
+        let mut layout = build_layout_tree(&dom, &rules).expect("build layout tree");
+        compute(&mut layout, 800.0, 600.0).expect("compute layout");
+
+        fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
+            let handle = tree.get_node_context(node)?;
+            if let NodeData::Element { attrs, .. } = &handle.data
+                && attrs.borrow().iter().any(|a| &*a.value == target)
+            {
+                return Some(node);
+            }
+            tree.children(node)
+                .ok()?
+                .into_iter()
+                .find_map(|c| find(tree, c, target))
+        }
+
+        let y = find(&layout.tree, layout.root, "y").expect("div#y");
+        assert_eq!(
+            layout.tree.layout(y).expect("div#y layout").size.width,
+            30.0,
+            "id specificity must win over class and type selectors"
         );
     }
 

@@ -12,6 +12,7 @@
 //!   backed by `tree-sitter` grammars (JavaScript / TypeScript / TSX) for full
 //!   AST fidelity.
 
+pub mod coverage;
 pub mod js_transform;
 pub mod transpile;
 pub mod tree_sitter_discovery;

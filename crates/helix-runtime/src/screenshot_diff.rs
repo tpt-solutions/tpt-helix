@@ -110,6 +110,46 @@ pub fn assert_within(
     report
 }
 
+/// Like [`compare`] but returns the inclusive bounding box of all changed
+/// pixels `(x0, y0, x1, y1)` in image coordinates, or `None` when the frames
+/// are identical or differ in size. The bounds localize a regression to a
+/// region of the frame, which lets a CI gate report *where* a composed
+/// (multi-component) UI changed rather than only that *something* changed.
+pub fn changed_bounds(actual: &RgbaImage, expected: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
+    if actual.width() != expected.width() || actual.height() != expected.height() {
+        return None;
+    }
+    let mut x0 = actual.width();
+    let mut y0 = actual.height();
+    let mut x1 = 0u32;
+    let mut y1 = 0u32;
+    let mut any = false;
+    for (i, (a, e)) in actual.pixels().zip(expected.pixels()).enumerate() {
+        if (0..4).any(|c| a.0[c] != e.0[c]) {
+            let x = (i as u32) % actual.width();
+            let y = (i as u32) / actual.width();
+            if x < x0 {
+                x0 = x;
+            }
+            if y < y0 {
+                y0 = y;
+            }
+            if x > x1 {
+                x1 = x;
+            }
+            if y > y1 {
+                y1 = y;
+            }
+            any = true;
+        }
+    }
+    if !any {
+        None
+    } else {
+        Some((x0, y0, x1, y1))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +200,41 @@ mod tests {
         let a = solid(10, 10, [0, 0, 0, 0]);
         let b = solid(10, 10, [0, 0, 0, 0]);
         assert_within(&a, &b, 0.01);
+    }
+
+    #[test]
+    fn changed_bounds_locates_single_pixel_change() {
+        let mut a = solid(8, 8, [0, 0, 0, 0]);
+        let b = solid(8, 8, [0, 0, 0, 0]);
+        a.put_pixel(3, 5, Rgba([255, 0, 0, 255]));
+        let bounds = changed_bounds(&a, &b).expect("one pixel changed");
+        assert_eq!(bounds, (3, 5, 3, 5));
+    }
+
+    #[test]
+    fn changed_bounds_spans_a_moved_element() {
+        let mut baseline = solid(40, 40, [240, 240, 240, 255]);
+        let mut regressed = solid(40, 40, [240, 240, 240, 255]);
+        // Baseline: a 10x10 red block at (5,5). Regressed: same block at (25,5).
+        for y in 5..15 {
+            for x in 5..15 {
+                baseline.put_pixel(x, y, Rgba([200, 0, 0, 255]));
+            }
+            for x in 25..35 {
+                regressed.put_pixel(x, y, Rgba([200, 0, 0, 255]));
+            }
+        }
+        let bounds = changed_bounds(&regressed, &baseline).expect("change present");
+        // Both the vacated region (5..15) and the new region (25..35) are hit,
+        // so the bounding box spans the full horizontal move.
+        assert_eq!(bounds, (5, 5, 34, 14));
+    }
+
+    #[test]
+    fn changed_bounds_none_when_identical_or_sized_mismatch() {
+        let a = solid(6, 6, [1, 2, 3, 4]);
+        let b = solid(6, 6, [1, 2, 3, 4]);
+        assert!(changed_bounds(&a, &b).is_none());
+        assert!(changed_bounds(&a, &solid(7, 7, [1, 2, 3, 4])).is_none());
     }
 }

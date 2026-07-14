@@ -20,13 +20,41 @@ pub struct DocumentLayout {
 }
 
 /// Resolves the `taffy::Style` for `element` from whichever of `rules`
-/// match it, last rule wins (a minimal stand-in for CSS cascade order).
+/// match it, ordered by CSS cascade/specificity so the highest-specificity
+/// (then, for ties, latest-in-source) rule wins — matching real CSS cascade
+/// ordering rather than raw source order.
 fn resolve_style(element: &DomElement, rules: &[StyleRule]) -> Style {
+    let mut matched: Vec<(u32, usize, &StyleRule)> = rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.selectors.slice().iter().any(|s| matches(s, element)))
+        .map(|(i, rule)| {
+            // A rule may list several comma-separated selectors; the matching
+            // one's specificity governs, so use the maximum across the list.
+            let specificity = rule
+                .selectors
+                .slice()
+                .iter()
+                .map(|s| s.specificity())
+                .max()
+                .unwrap_or(0);
+            (specificity, i, rule)
+        })
+        .collect();
+    // Ascending: lower specificity / earlier source applied first, so the
+    // highest-specificity (then latest-source) declaration wins.
+    matched.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+    // `taffy` defaults `display` to `Flex`, but real CSS block layout is the
+    // model this renderer targets: an element with no `display` declaration is
+    // a block-level box. Using `Block` as the default lets `auto` widths fill
+    // the containing block and (critically) lets descendant *percentage*
+    // widths resolve against a definite block parent, which the Flex default
+    // silently collapses to zero.
     let mut style = Style::default();
-    for rule in rules {
-        if rule.selectors.slice().iter().any(|s| matches(s, element)) {
-            apply_declarations(&mut style, &rule.declarations_css);
-        }
+    style.display = Display::Block;
+    for (_, _, rule) in matched {
+        apply_declarations(&mut style, &rule.declarations_css);
     }
     style
 }
@@ -89,6 +117,7 @@ fn build_node(
     rules: &[StyleRule],
 ) -> taffy::TaffyResult<NodeId> {
     let style = resolve_style(&DomElement(handle.clone()), rules);
+
     let children: Vec<NodeId> = handle
         .children
         .borrow()
@@ -207,6 +236,45 @@ mod tests {
         let half_layout = layout.tree.layout(half).expect("half layout");
         // 50% of an 800px viewport.
         assert_eq!(half_layout.size.width, 400.0);
+    }
+
+    #[test]
+    fn block_auto_width_fills_containing_block() {
+        // An element with no explicit width (width: auto) in block flow resolves
+        // to the full width of its containing block, which is the viewport here.
+        // This is the intrinsic default ("fill the containing block") that the
+        // percentage-resolution fix relies on for a definite intermediate width.
+        let dom = parse_html(r#"<html><body><div class="fill"></div></body></html>"#);
+        let rules = parse_stylesheet("div.fill { height: 20px; }");
+        let mut layout = build_layout_tree(&dom, &rules).expect("build layout tree");
+        compute(&mut layout, 800.0, 600.0).expect("compute layout");
+
+        fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
+            let handle = tree.get_node_context(node)?;
+            if let NodeData::Element { attrs, .. } = &handle.data
+                && attrs.borrow().iter().any(|a| &*a.value == target)
+            {
+                return Some(node);
+            }
+            tree.children(node)
+                .ok()?
+                .into_iter()
+                .find_map(|c| find(tree, c, target))
+        }
+
+        let fill = find(&layout.tree, layout.root, "fill").expect("fill node");
+        let fill_layout = layout.tree.layout(fill).expect("fill layout");
+        assert_eq!(fill_layout.size.width, 800.0);
+
+        // A nested auto-width block also fills its (now definite) parent.
+        let dom2 =
+            parse_html(r#"<html><body><section><div class="inner"></div></section></body></html>"#);
+        let rules2 = parse_stylesheet("div.inner { height: 10px; }");
+        let mut layout2 = build_layout_tree(&dom2, &rules2).expect("build layout tree");
+        compute(&mut layout2, 800.0, 600.0).expect("compute layout");
+        let inner = find(&layout2.tree, layout2.root, "inner").expect("inner node");
+        let inner_layout = layout2.tree.layout(inner).expect("inner layout");
+        assert_eq!(inner_layout.size.width, 800.0);
     }
 
     #[test]

@@ -10,7 +10,9 @@
 //! These properties are exercised with `proptest` over randomly generated HTML
 //! trees (fuzzing), not just hand-written fixtures.
 
-use helix_migrate::transpile::{DomOp, collect_text, parse_html, transpile_static_site};
+use helix_migrate::transpile::{
+    DomOp, collect_text, parse_html, transpile_form_app, transpile_static_site,
+};
 use proptest::prelude::*;
 
 /// A synthetic HTML tree used as the migration source.
@@ -142,5 +144,78 @@ proptest! {
         let creates = site.ops.iter().filter(|o| matches!(o, DomOp::Create { .. })).count();
         // Every element is created; mixed-content text adds extra span creates.
         prop_assert!(creates >= elements);
+    }
+}
+
+/// A P2 form-based CRUD document: a `<form>` with `fields` named inputs (each
+/// carrying an `onchange` handler) and a submit button, followed by a `<table>`
+/// with `rows` data rows. Returned HTML strings use no inter-tag whitespace so
+/// the parser sees exactly the text we generated.
+fn form_doc(fields: usize, rows: usize) -> String {
+    let types = ["text", "number", "email"];
+    let mut s = String::from("<form onsubmit=\"submit()\">");
+    for i in 0..fields {
+        let t = types[i % types.len()];
+        s.push_str(&format!("<input type=\"{t}\" name=\"f{i}\" onchange=\"chg()\" />"));
+    }
+    s.push_str("<button type=\"submit\">Add</button></form><table>");
+    for i in 0..rows {
+        s.push_str(&format!("<tr><td>row{i}</td></tr>"));
+    }
+    s.push_str("</table>");
+    s
+}
+
+proptest! {
+    /// P2 transpilation preserves the text content (button label + row text)
+    /// of the source document exactly — the Stage S3 content-fidelity invariant.
+    #[test]
+    fn form_app_text_is_preserved(fields in 1..4usize, rows in 0..4usize) {
+        let html = form_doc(fields, rows);
+        let site = transpile_form_app(&html);
+
+        let expected = collect_text(&parse_html(&html));
+        let got: Vec<String> = site
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DomOp::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        prop_assert_eq!(expected, got, "transpiled form text diverges from source");
+    }
+
+    /// The P2 transpiled guest is structurally sound (every variable created
+    /// before use), is wired with at least one handler, and its extracted CRUD
+    /// model matches the source (field count, submit presence, row count).
+    #[test]
+    fn form_app_crud_model_is_consistent(fields in 1..4usize, rows in 0..4usize) {
+        let html = form_doc(fields, rows);
+        let site = transpile_form_app(&html);
+
+        let mut created: std::collections::HashSet<String> = Default::default();
+        let mut wired = false;
+        for op in &site.ops {
+            match op {
+                DomOp::Create { var, .. } => {
+                    prop_assert!(created.insert(var.clone()), "duplicate var {var}");
+                }
+                DomOp::Append { parent, child } => {
+                    prop_assert!(created.contains(parent), "append to undefined {parent}");
+                    prop_assert!(created.contains(child), "append of undefined {child}");
+                }
+                DomOp::OnSubmit { .. } | DomOp::OnClick { .. } => wired = true,
+                _ => {}
+            }
+        }
+        prop_assert!(wired, "form must be wired with a handler");
+
+        prop_assert_eq!(site.crud.forms.len(), 1, "exactly one form expected");
+        prop_assert_eq!(site.crud.forms[0].fields.len(), fields, "field count mismatch");
+        prop_assert!(site.crud.forms[0].has_submit, "form must have a submit affordance");
+        prop_assert_eq!(site.crud.tables.len(), 1, "exactly one table expected");
+        prop_assert_eq!(site.crud.tables[0].row_count, rows, "row count mismatch");
     }
 }

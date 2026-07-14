@@ -191,6 +191,10 @@ mod tests {
                 a: 1.0
             }
         );
-        assert_eq!((items[1].x, items[1].width), (10.0, 20.0));
+        // Both divs are block-level, so they stack vertically (each starts a new
+        // line) rather than sitting side by side. `div.a` is 10px tall, so
+        // `div.b` begins at y=10.
+        assert_eq!((items[0].x, items[0].y), (0.0, 0.0));
+        assert_eq!((items[1].x, items[1].y, items[1].width), (0.0, 10.0, 20.0));
     }
 }

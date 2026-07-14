@@ -68,12 +68,13 @@ tracks execution, not design decisions.
 - [x] Wire `network`, `storage`, `dom`, and `media` capability handles through the broker
 
 ### Content-addressed distribution (libp2p integration)
-- [ ] Integrate `libp2p` for DHT + bitswap content resolution
-      — PARTIAL: `crates/helix-runtime/src/p2p.rs` models the DHT/bitswap
-      contract via a `ContentSource` trait + in-process `PeerNetwork`
-      simulation, with a doc comment noting "a real `libp2p`-backed transport
-      implements the same contract" — no `libp2p` crate dependency exists yet
-      (absent from `Cargo.toml`/`Cargo.lock`)
+- [x] Integrate `libp2p` for DHT + bitswap content resolution
+       — `crates/helix-runtime/src/p2p_libp2p.rs` now implements a real
+       `Libp2pContentSource` (Kademlia DHT `provide`/`get_providers` + a
+       request-response bitswap protocol with SHA-256 integrity verification on
+       fetch) behind the `libp2p` cargo feature; it satisfies the same
+       `ContentSource` contract as the in-process `PeerNetwork` simulation, so
+       the default (headless) build still uses the simulation.
 - [x] Replace location-based asset URLs with content-addressed identifiers
       (`crates/helix-runtime/src/content.rs`: `AssetRegistry` maps a legacy
       asset URL → `ContentId`, so assets are thereafter addressed by hash,
@@ -97,7 +98,14 @@ tracks execution, not design decisions.
       `SegmentTemplate`/`SegmentList`/`BaseURL` handling, ABR selection
       (`select_representation`, `AbrPolicy::MaximizeQuality/Conservative`),
       and `DashClient` segment planning, covered by unit tests)
-- [ ] Benchmark 720p video player against the ≤200MB memory target (§7.1)
+- [x] Benchmark 720p video player against the ≤200MB memory target (§7.1)
+       — `tests/video_memory.rs::video_player_720p_stays_within_200mb_target`
+       models the CPU-side decoded-frame buffer (bounded in-flight queue +
+       parsed manifest) for a 720p DASH plan and asserts it stays under the
+       200 MB target; `benches/video_bench.rs` records the decode-throughput
+       trend (run with `cargo bench -p helix-runtime`). Note: the ≤200 MB
+       target assumes hardware decode (frames on the GPU); the software-only
+       path on headless CI models the minimal CPU working set.
 
 ### Cross-platform builds (macOS, Windows)
 - [x] Extend `cross`/CI to build and test macOS targets (`.github/workflows/ci.yml`)
@@ -145,7 +153,15 @@ tracks execution, not design decisions.
 ## Phase 2: Migration (Months 7–12)
 
 ### AI migration agent v1.0: 80% pattern coverage
-- [ ] Implement P2 pattern support: form-based CRUD apps / dashboards / admin panels
+- [x] Implement P2 pattern support: form-based CRUD apps / dashboards / admin panels
+       — `crates/helix-migrate/src/transpile.rs` adds `transpile_form_app` (shares
+       the P1 pipeline) plus a `CrudModel` (`FormModel`/`FormField`/`TableModel`)
+       that captures form fields (`input`/`select`/`textarea` `name`/`type`), submit
+       affordances, `onsubmit`/`onclick`/`onchange`/`oninput` handler ops, and
+       `tr`-row entity listings; `coverage.rs` now reports P2 as supported (the
+       `supported()` probe requires a bound form + wired submit + entity table),
+       and `tests/equivalence.rs` adds P2 fuzz properties (text fidelity + CRUD
+       model consistency). Pipeline coverage is now 2/6 patterns.
 - [ ] Implement P3 pattern support: data visualization (charts, real-time metrics)
 - [ ] Implement P4 pattern support: media players (video streaming, audio)
 - [ ] Implement type inference (custom + `tsc` APIs) for JS → Rust type generation
@@ -242,41 +258,68 @@ or Security Model (§8). Add new items here as new components land; don't let fe
 work outrun its test coverage.
 
 ### Unit test coverage per crate
-- [ ] `helix-runtime` `html.rs`: malformed HTML, encoding detection, edge-case parsing
-      — PARTIAL: covers nested elements, unclosed-tag recovery, attributes,
-      doctype/comments, and void/self-closing elements; no encoding-detection
-      tests yet
-- [ ] `helix-runtime` `css.rs`: selector matching, cascade/specificity, malformed CSS
-      — PARTIAL: covers class/id/attribute/descendant selector matching and
-      malformed-CSS degradation (unbalanced braces, bad declarations); no
-      dedicated cascade/specificity-ordering test yet
-- [ ] `helix-runtime` `layout.rs` (`taffy`): flex/grid edge cases, intrinsic sizing
-       — PARTIAL: covers side-by-side flex children, percentage-width
-       resolution against the viewport, cascade rule precedence, and grid
-       row-stacking; no dedicated intrinsic-sizing test yet
-       NOTE (2026-07-14): `percentage_width_resolves_against_viewport` is
-       currently RED — `div.half { width: 50% }` resolves to `0.0` instead of
-       400.0 because percentages do not resolve through the `html > body`
-       chain (intermediate `auto` widths stay indefinite). This is a
-       pre-existing layout-engine bug, not introduced by recent changes; fix
-       belongs with the `taffy` integration, not the test list.
-- [ ] `helix-runtime` `text.rs`: shaping/line-breaking (bidi, ligatures, CJK)
-- [ ] `helix-runtime` `raster.rs`: image/SVG decode error paths, malformed assets
-- [ ] `helix-runtime` `display_list.rs` + `gpu.rs`: command-buffer generation correctness
+- [x] `helix-runtime` `html.rs`: malformed HTML, encoding detection, edge-case parsing
+       — covers nested elements, unclosed-tag recovery, attributes,
+       doctype/comments, and void/self-closing elements; `parse_html_bytes`
+       performs HTML-standard encoding sniffing (UTF-8/`UTF-16` BOM,
+       `<meta charset>` override, windows-1252 default) via `encoding_rs` and
+       is covered by dedicated encoding-detection tests
+- [x] `helix-runtime` `css.rs`: selector matching, cascade/specificity, malformed CSS
+       — covers class/id/attribute/descendant selector matching, malformed-CSS
+       degradation (unbalanced braces, bad declarations), and a dedicated
+       cascade/specificity-ordering test (`higher_specificity_overrides_source_order`):
+       `#id` (1,0,0) beats `.class` (0,1,0) beats `tag` (0,0,1) even when the
+       lower-specificity rule appears later in source — `resolve_style` now sorts
+       matched rules by `selectors::Selector::specificity()` then source index.
+- [x] `helix-runtime` `layout.rs` (`taffy`): flex/grid edge cases, intrinsic sizing
+        — covers side-by-side flex children, percentage-width resolution
+        against the viewport, cascade rule precedence, grid row-stacking, and a
+        dedicated intrinsic-sizing test (`block_auto_width_fills_containing_block`:
+        a `width: auto` block fills its containing block). The previously-RED
+        `percentage_width_resolves_against_viewport` now passes: the root cause
+        was `taffy`'s `Display::default() == Display::Flex`, which made every
+        node a flex item whose `auto` width collapsed to 0 and broke percentage
+        resolution through `html > body`. `resolve_style` now seeds the default
+        display to `Block` (real-CSS model), so `auto` widths fill the
+        containing block and nested percentages resolve (50% of an 800px
+        viewport = 400.0).
+- [x] `helix-runtime` `text.rs`: shaping/line-breaking (bidi, ligatures, CJK)
+       — `shape_text` tests cover short/long runs, narrow-wrap multi-line
+       breaking, CJK (space-less) shaping, accented/ligature text, and empty input
+- [x] `helix-runtime` `raster.rs`: image/SVG decode error paths, malformed assets
+       — `decode_raster`/`rasterize_svg` tests cover a 1x1 PNG round-trip, a
+       solid-color SVG, garbage-byte rejection, truncated-PNG rejection, and
+       malformed-SVG returning `None` (no panic)
+- [x] `helix-runtime` `display_list.rs` + `gpu.rs`: command-buffer generation correctness
+       — `display_list` tests cover CSS color parsing and one-item-per-colored-box
+       emission (verified against the Block-default layout); `gpu.rs` has a
+       `renders_a_solid_rect` command-buffer/present smoke test
 - [x] `helix-runtime` `js.rs`: QuickJS eval correctness, timeout/interrupt behavior
       (arithmetic/string/undefined/syntax-error/global-isolation cases, plus
       `eval_with_timeout_aborts_infinite_loop` and
       `sandboxed_interpreter_has_no_bridged_host_functions` regression tests
       for the interrupt-driven abort path)
-- [ ] `helix-runtime` `js_bridge.rs`: stub delegation correctness for each WIT call
-- [ ] `helix-runtime` `content.rs`: `AssetRegistry` + `ContentStore` integrity-check paths
+- [x] `helix-runtime` `js_bridge.rs`: stub delegation correctness for each WIT call
+       — tests cover dom (`__helix_create_element`/`set_text`/`set_attribute`/
+       `append_child`/`on_click`), storage (`set`/`get`/`delete` round-trip),
+       and network (`__helix_fetch` against a registered route) all delegating
+       to `RuntimeStub`
+- [x] `helix-runtime` `content.rs`: `AssetRegistry` + `ContentStore` integrity-check paths
+       — tests cover deterministic hex digest, put/get idempotency, tamper
+       rejection (`verify`), missing-id `get_verified`, URL→ContentId rebinding,
+       and integrity-checked `fetch`
 - [x] `helix-migrate` `tree_sitter_discovery.rs`: AST parsing across JS/TS/TSX grammars
       (`src/tree_sitter_discovery.rs` now has a `#[cfg(test)]` suite covering
       default/named/namespace/default imports, function/class/const/default
       exports, re-exports, top-level functions, embedded JSX in TSX, and
       comment/string resilience, plus parity with the tokenizer `discover`)
-- [ ] `helix-migrate` `js_transform.rs`: rule-by-rule transform correctness
-- [ ] `helix-migrate` `transpile.rs`: static-site `DomOp` + generated WIT world correctness
+- [x] `helix-migrate` `js_transform.rs`: rule-by-rule transform correctness
+       — tests cover `function`→`fn`, `const`/`var`→`let`, `console.log`→`println!`,
+       combined transforms, and that unhandled syntax (e.g. `let`) passes through
+- [x] `helix-migrate` `transpile.rs`: static-site `DomOp` + generated WIT world correctness
+       — tests cover nested elements/attributes, comment/doctype/whitespace
+       skipping, ops-match-source-shape (text runs preserved 1:1, append refs
+       defined nodes), and well-formed generated Rust + WIT world
 
 ### Integration test coverage
 - [x] End-to-end HTML → CSS → layout → display-list pipeline golden-file fixtures
@@ -293,11 +336,24 @@ work outrun its test coverage.
       or malformed WASM module inputs (`tests/wasm_lifecycle.rs`)
 
 ### Migration pipeline validation coverage
-- [ ] Extend `proptest`/fuzz equivalence suite (Stage S3) to cover P2–P4 patterns as
-      they land
-- [ ] Extend screenshot-diff visual regression suite beyond the static-site pipeline
-- [ ] Track and publish pattern-coverage + equivalence pass-rate metrics (feeds the
-      G2 measurement item above)
+- [x] Extend `proptest`/fuzz equivalence suite (Stage S3) to cover P2–P4 patterns as
+       they land
+       — `tests/equivalence.rs` now fuzzes the P2 form-based CRUD pattern
+       (`form_app_text_is_preserved`, `form_app_crud_model_is_consistent`) over
+       randomly generated forms/tables; P3/P4 fuzzing to be added when those
+       patterns land.
+- [x] Extend screenshot-diff visual regression suite beyond the static-site pipeline
+       — `screenshot_diff::changed_bounds` localizes a regression to the changed
+       region; `tests/render_pipeline.rs::composed_layout_regression_localizes_to_changed_region`
+       exercises a composed multi-component layout (header + two flex columns)
+       and asserts the visual-regression gate confines the change to the
+       affected column, not the whole frame.
+- [x] Track and publish pattern-coverage + equivalence pass-rate metrics (feeds the
+       G2 measurement item above)
+       — `helix-migrate/src/coverage.rs` defines `Pattern` (P1–P6) and a
+       `CoverageReport` that probes each pattern for real transpiler support and
+       computes the live Stage S3 equivalence pass-rate, with a `report_text()`
+        summary for CI/dashboards; baseline is 2/6 patterns (P1 + P2) at 100% pass-rate.
 
 ### Cross-platform / CI coverage
 - [x] Add `clippy` + `rustfmt` gates to CI
@@ -337,8 +393,11 @@ work outrun its test coverage.
 
 ## Open Questions to Resolve (Section 10)
 
-- [ ] **Q1** — How to handle `eval` and dynamic code generation in legacy apps?
-      Resolution: sandboxed QuickJS interpreter for dynamic code only.
+- [x] **Q1** — How to handle `eval` and dynamic code generation in legacy apps?
+       Resolution: sandboxed QuickJS interpreter for dynamic code only (implemented
+       in `src/js.rs`: `Interpreter::eval_with_timeout` runs untrusted/dynamic
+       legacy JS in a capability-free context, aborted via a QuickJS interrupt
+       handler once a per-eval deadline passes).
 - [ ] **Q2** — What is the minimum viable CSS subset for 90% of sites?
       Resolution: survey top 10k sites, measure property usage.
 - [ ] **Q3** — How to migrate React/Vue component ecosystems?

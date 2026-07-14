@@ -5,7 +5,86 @@ use html5ever::tendril::TendrilSink;
 use html5ever::{QualName, parse_document};
 use markup5ever_rcdom::{Handle, RcDom};
 
-/// Parses an HTML5 document string into an `RcDom` tree.
+/// Parses an HTML5 document from raw bytes, performing the same character
+/// encoding sniffing the HTML standard prescribes (BOM, `<meta charset>`, and
+/// the windows-1252 default) before decoding to UTF-8 and parsing. Unlike
+/// [`parse_html`] which requires valid UTF-8 input up front, this accepts any
+/// byte stream a real web server might send.
+pub fn parse_html_bytes(source: &[u8]) -> RcDom {
+    let decoded = decode_html_bytes(source);
+    parse_html(&decoded)
+}
+
+/// Detect the character encoding of a raw HTML byte stream per the HTML
+/// standard's encoding sniffing algorithm (BOM, `<meta charset>`, then the
+/// windows-1252 default) and decode it to a `String`.
+pub fn decode_html_bytes(source: &[u8]) -> String {
+    use encoding_rs::{Encoding, UTF_8, WINDOWS_1252};
+
+    let encoding: &'static Encoding = if source.starts_with(&[0xEFu8, 0xBB, 0xBF]) {
+        UTF_8
+    } else if source.starts_with(&[0xFFu8, 0xFE]) {
+        encoding_rs::UTF_16LE
+    } else if source.starts_with(&[0xFEu8, 0xFF]) {
+        encoding_rs::UTF_16BE
+    } else if let Some(label) = scan_meta_charset(&source[..source.len().min(1024)]) {
+        Encoding::for_label(label.as_bytes()).unwrap_or(WINDOWS_1252)
+    } else {
+        WINDOWS_1252
+    };
+
+    match encoding.decode_without_bom_handling_and_without_replacement(source) {
+        Some(cow) => cow.into_owned(),
+        None => encoding
+            .decode_without_bom_handling(source)
+            .0
+            .into_owned(),
+    }
+}
+
+/// Scan a leading slice of bytes for a `charset` declaration, returning the
+/// raw encoding label (e.g. `utf-8`, `iso-8859-1`). Handles both
+/// `<meta charset="...">` and `<meta http-equiv="content-type" ...>` forms.
+fn scan_meta_charset(head: &[u8]) -> Option<String> {
+    let s = String::from_utf8_lossy(head);
+    let lower = s.to_ascii_lowercase();
+    let bytes = s.as_bytes();
+    let mut idx = 0;
+    while let Some(pos) = lower[idx..].find("charset") {
+        let abs = idx + pos;
+        let rest = &lower[abs + 7..];
+        let rest_bytes = &bytes[abs + 7..];
+        let mut i = 0;
+        while i < rest.len() && (rest_bytes[i] == b' ' || rest_bytes[i] == b'\t') {
+            i += 1;
+        }
+        if i < rest.len() && rest_bytes[i] == b'=' {
+            i += 1;
+            while i < rest.len() && (rest_bytes[i] == b' ' || rest_bytes[i] == b'\t') {
+                i += 1;
+            }
+            let quoted = i < rest.len() && (rest_bytes[i] == b'"' || rest_bytes[i] == b'\'');
+            if quoted {
+                i += 1;
+            }
+            let start = i;
+            while i < rest.len()
+                && !rest_bytes[i].is_ascii_whitespace()
+                && rest_bytes[i] != b'>'
+                && (!quoted || (rest_bytes[i] != b'"' && rest_bytes[i] != b'\''))
+            {
+                i += 1;
+            }
+            if i > start {
+                return Some(s[abs + 7 + start..abs + 7 + i].to_string());
+            }
+        }
+        idx = abs + 7;
+    }
+    None
+}
+
+/// Parses a UTF-8 HTML5 document string into an `RcDom` tree.
 pub fn parse_html(source: &str) -> RcDom {
     parse_document(RcDom::default(), ParseOpts::default())
         .from_utf8()
@@ -134,5 +213,51 @@ mod tests {
             tags(&dom),
             vec!["html", "head", "body", "img", "br", "input"]
         );
+    }
+
+    // --- Encoding detection (html5ever `from_bytes` sniffing) -----------------
+
+    /// UTF-8 input (with a leading BOM) must decode and parse normally.
+    #[test]
+    fn detects_utf8_with_bom() {
+        let bom = [0xEFu8, 0xBB, 0xBF];
+        let mut bytes = bom.to_vec();
+        bytes.extend_from_slice(b"<html><body><p>caf\xc3\xa9</p></body></html>");
+        let dom = parse_html_bytes(&bytes);
+        assert_eq!(text(&dom), vec!["café"]);
+    }
+
+    /// Raw windows-1252 bytes (no meta, no BOM) decode via the HTML default
+    /// encoding: the high byte 0xE9 maps to U+00E9 (é), not the UTF-8 sequence.
+    #[test]
+    fn detects_windows_1252_default() {
+        let mut bytes = b"<html><body><p>caf".to_vec();
+        bytes.push(0xE9); // é in windows-1252
+        bytes.extend_from_slice(b"</p></body></html>");
+        let dom = parse_html_bytes(&bytes);
+        assert_eq!(text(&dom), vec!["café"]);
+    }
+
+    /// A leading UTF-16LE BOM selects UTF-16 decoding.
+    #[test]
+    fn detects_utf16le_via_bom() {
+        let mut bytes = vec![0xFFu8, 0xFE]; // UTF-16LE BOM
+        for unit in "<html><body><p>naïve</p></body></html>".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        let dom = parse_html_bytes(&bytes);
+        assert_eq!(text(&dom), vec!["naïve"]);
+    }
+
+    /// A `<meta charset>` declaration overrides the default decoding, so the
+    /// same high bytes are read as ISO-8859-1 rather than windows-1252.
+    #[test]
+    fn meta_charset_overrides_default() {
+        let mut bytes =
+            b"<html><head><meta charset=\"iso-8859-1\"></head><body><p>caf".to_vec();
+        bytes.push(0xE9); // é in iso-8859-1
+        bytes.extend_from_slice(b"</p></body></html>");
+        let dom = parse_html_bytes(&bytes);
+        assert_eq!(text(&dom), vec!["café"]);
     }
 }

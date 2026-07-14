@@ -11,6 +11,8 @@ pub mod js_bridge;
 pub mod layout;
 pub mod media_decode;
 pub mod p2p;
+#[cfg(feature = "libp2p")]
+pub mod p2p_libp2p;
 pub mod raster;
 pub mod screenshot_diff;
 pub mod software_raster;

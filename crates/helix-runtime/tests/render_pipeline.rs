@@ -9,7 +9,7 @@ use helix_runtime::css::parse_stylesheet;
 use helix_runtime::display_list::build_display_list;
 use helix_runtime::html::parse_html;
 use helix_runtime::layout::{build_layout_tree, compute};
-use helix_runtime::screenshot_diff::compare;
+use helix_runtime::screenshot_diff::{changed_bounds, compare};
 use helix_runtime::software_raster::rasterize_display_list;
 use image::Rgba;
 
@@ -94,4 +94,44 @@ fn changed_color_is_flagged_as_a_visual_regression() {
     assert!(!report.identical);
     assert!(report.changed_ratio > 0.0);
     assert!(report.max_channel_delta > 0);
+}
+
+/// Beyond the single-box case: a composed multi-component layout (a header plus
+/// two side-by-side columns) renders into distinct regions, and a regression
+/// that recolors just one column is localized to that column's bounding box by
+/// the visual-regression gate.
+#[test]
+fn composed_layout_regression_localizes_to_changed_region() {
+    let html = r#"<html><body>
+        <header class="hdr"></header>
+        <div class="row">
+            <div class="col col-a"></div>
+            <div class="col col-b"></div>
+        </div>
+    </body></html>"#;
+    let base = "\
+        header.hdr { width: 200px; height: 40px; background-color: #333333; } \
+        div.row { display: flex; } \
+        div.col { width: 90px; height: 100px; } \
+        div.col-a { background-color: #ff0000; } \
+        div.col-b { background-color: #0000ff; }";
+    // Regression: col-b is now green instead of blue.
+    let regressed = "\
+        header.hdr { width: 200px; height: 40px; background-color: #333333; } \
+        div.row { display: flex; } \
+        div.col { width: 90px; height: 100px; } \
+        div.col-a { background-color: #ff0000; } \
+        div.col-b { background-color: #00ff00; }";
+
+    let base_raw = pipeline(html, base, 300, 200);
+    let regr_raw = pipeline(html, regressed, 300, 200);
+    let base_img = image::RgbaImage::from_raw(300, 200, base_raw).unwrap();
+    let regr_img = image::RgbaImage::from_raw(300, 200, regr_raw).unwrap();
+
+    // Header and col-a are untouched: the regression is confined to col-b.
+    let bounds = changed_bounds(&regr_img, &base_img).expect("change present");
+    // The flex row fills the 300px viewport; two 90px columns place col-b at
+    // x in [90, 180), below the 40px header (y in [40, 140)).
+    assert!(bounds.0 >= 80 && bounds.2 <= 190, "change within col-b x: {bounds:?}");
+    assert!(bounds.1 >= 40 && bounds.3 <= 150, "change within col-b y: {bounds:?}");
 }

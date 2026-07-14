@@ -8,6 +8,11 @@ edition = "2024"
 # the crate builds and tests on headless CI hosts without a GPU. See
 # `media_decode.rs`.
 hardware-decode = []
+# Enables the libp2p-backed content-resolution transport (`p2p_libp2p.rs`).
+# Off by default: the default build uses the in-process `PeerNetwork` (a
+# faithful model of the same DHT/bitswap contract). Enabling this pulls in the
+# real `libp2p` Kademlia DHT + request-response bitswap stack.
+libp2p = ["dep:libp2p", "dep:tokio", "dep:async-trait"]
 
 [dependencies]
 html5ever = "0.39.0"
@@ -21,7 +26,11 @@ cosmic-text = "0.12"
 fontdb = "0.16"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 resvg = "0.44"
+encoding_rs = "0.8"
 wgpu = "22"
+libp2p = { version = "0.56", optional = true, features = ["kad", "request-response", "macros", "tokio", "noise", "tcp", "quic", "dns", "yamux", "serde"] }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
+async-trait = { version = "0.1", optional = true }
 pollster = "0.3"
 bytemuck = { version = "1", features = ["derive"] }
 rquickjs = { version = "0.6", features = ["macro"] }
@@ -35,4 +44,8 @@ criterion = "0.5"
 
 [[bench]]
 name = "layout_bench"
+harness = false
+
+[[bench]]
+name = "video_bench"
 harness = false
