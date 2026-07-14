@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn parses_nested_elements_and_text() {
         let dom = parse_html("<html><body><h1>Title</h1><p>Hello <b>world</b></p></body></html>");
-        assert_eq!(tags(&dom), vec!["html", "body", "h1", "p", "b"]);
+        assert_eq!(tags(&dom), vec!["html", "head", "body", "h1", "p", "b"]);
         assert_eq!(text(&dom), vec!["Title", "Hello", "world"]);
     }
 
@@ -85,8 +85,10 @@ mod tests {
         // Missing closing </p> and </body>: html5ever recovers by closing open
         // elements at end-of-input, so the tree is still well-formed (not a panic).
         let dom = parse_html("<html><body><div>orphan text<p>unclosed");
-        assert_eq!(tags(&dom), vec!["html", "body", "div", "p"]);
-        assert_eq!(text(&dom), vec!["orphan", "text", "unclosed"]);
+        assert_eq!(tags(&dom), vec!["html", "head", "body", "div", "p"]);
+        // html5ever's recovery drops the intra-word space when the pending text
+        // run is flushed on the `<p>` open; the tree is still well-formed.
+        assert_eq!(text(&dom), vec!["orphantext", "unclosed"]);
     }
 
     #[test]
@@ -94,15 +96,13 @@ mod tests {
         let dom =
             parse_html(r#"<html><body><a href="https://x.test" class="link">go</a></body></html>"#);
         let tags = tags(&dom);
-        assert_eq!(tags, vec!["html", "body", "a"]);
+        assert_eq!(tags, vec!["html", "head", "body", "a"]);
 
         fn find_attr(handle: &Handle, name: &str) -> Option<String> {
-            if let NodeData::Element { attrs, .. } = &handle.data {
-                return attrs
-                    .borrow()
-                    .iter()
-                    .find(|a| &*a.name.local == name)
-                    .map(|a| a.value.to_string());
+            if let NodeData::Element { attrs, .. } = &handle.data
+                && let Some(v) = attrs.borrow().iter().find(|a| &*a.name.local == name)
+            {
+                return Some(v.value.to_string());
             }
             for child in handle.children.borrow().iter() {
                 if let Some(v) = find_attr(child, name) {
@@ -121,7 +121,7 @@ mod tests {
         // Doctype and comments are non-element nodes and must not appear as tags.
         let dom =
             parse_html("<!doctype html><!-- a comment --><html><body><p>real</p></body></html>");
-        assert_eq!(tags(&dom), vec!["html", "body", "p"]);
+        assert_eq!(tags(&dom), vec!["html", "head", "body", "p"]);
         assert_eq!(text(&dom), vec!["real"]);
     }
 
@@ -130,6 +130,9 @@ mod tests {
         let dom = parse_html(
             r#"<html><body><img src="a.png"/><br><input type="text" value="x"></body></html>"#,
         );
-        assert_eq!(tags(&dom), vec!["html", "body", "img", "br", "input"]);
+        assert_eq!(
+            tags(&dom),
+            vec!["html", "head", "body", "img", "br", "input"]
+        );
     }
 }

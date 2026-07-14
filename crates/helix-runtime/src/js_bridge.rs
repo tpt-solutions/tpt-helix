@@ -135,7 +135,7 @@ mod tests {
     fn js_can_create_and_mutate_an_element_through_the_bridge() {
         let _stub = RuntimeStub::new(); // resets thread-local host state
         let interpreter = Interpreter::new().unwrap();
-        interpreter.with(|ctx| install_dom_bridge(ctx)).unwrap();
+        interpreter.with(install_dom_bridge).unwrap();
 
         let element_id = interpreter
             .eval_to_string(
@@ -163,7 +163,7 @@ mod tests {
     fn js_can_build_a_parent_child_tree_and_register_a_click_handler() {
         let _stub = RuntimeStub::new();
         let interpreter = Interpreter::new().unwrap();
-        interpreter.with(|ctx| install_dom_bridge(ctx)).unwrap();
+        interpreter.with(install_dom_bridge).unwrap();
 
         let parent_id: u64 = interpreter
             .eval_to_string(
@@ -188,7 +188,7 @@ mod tests {
     fn js_storage_bridge_roundtrips_through_stub() {
         let _stub = RuntimeStub::new();
         let interpreter = Interpreter::new().unwrap();
-        interpreter.with(|ctx| install_storage_bridge(ctx)).unwrap();
+        interpreter.with(install_storage_bridge).unwrap();
 
         assert_eq!(
             interpreter
@@ -235,7 +235,7 @@ mod tests {
             },
         );
         let interpreter = Interpreter::new().unwrap();
-        interpreter.with(|ctx| install_network_bridge(ctx)).unwrap();
+        interpreter.with(install_network_bridge).unwrap();
 
         let body = interpreter
             .eval_to_string("__helix_fetch('https://example.com/')")

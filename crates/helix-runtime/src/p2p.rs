@@ -19,7 +19,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use crate::content::{digest, ContentId, ContentStore};
+use crate::content::{ContentId, ContentStore, digest};
 
 /// A peer in the content swarm, identified by an opaque multiaddr-like string.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -62,7 +62,11 @@ pub trait ContentSource {
 
     /// Retrieval: fetch the bytes for `id` from `provider`, verifying the
     /// content hash on receipt. Returns the verified bytes, or an error.
-    fn fetch_block(&self, provider: &Provider, id: &ContentId) -> Result<Vec<u8>, ContentSourceError>;
+    fn fetch_block(
+        &self,
+        provider: &Provider,
+        id: &ContentId,
+    ) -> Result<Vec<u8>, ContentSourceError>;
 
     /// Convenience: resolve-and-fetch from any known provider, returning the
     /// first verified block (or the first error if none succeed).
@@ -111,12 +115,11 @@ impl PeerNetwork {
     /// This is the DHT `provide` step plus the local bitswap `have`.
     pub fn provide(&self, peer: &PeerId, bytes: &[u8]) -> ContentId {
         let mut st = self.inner.lock().unwrap();
-        let id = st
-            .stores
-            .entry(peer.clone())
+        let id = st.stores.entry(peer.clone()).or_default().put(bytes);
+        st.routing
+            .entry(id.clone())
             .or_default()
-            .put(bytes);
-        st.routing.entry(id.clone()).or_default().insert(peer.clone());
+            .insert(peer.clone());
         id
     }
 
@@ -144,7 +147,11 @@ impl PeerNetwork {
     }
 
     /// `bitswap` fetch: pull a block from a specific peer, verifying the hash.
-    pub fn fetch_from(&self, provider: &PeerId, id: &ContentId) -> Result<Vec<u8>, ContentSourceError> {
+    pub fn fetch_from(
+        &self,
+        provider: &PeerId,
+        id: &ContentId,
+    ) -> Result<Vec<u8>, ContentSourceError> {
         let st = self.inner.lock().unwrap();
         let bytes = st
             .stores
@@ -169,7 +176,11 @@ impl ContentSource for PeerNetwork {
         self.providers_of(id)
     }
 
-    fn fetch_block(&self, provider: &Provider, id: &ContentId) -> Result<Vec<u8>, ContentSourceError> {
+    fn fetch_block(
+        &self,
+        provider: &Provider,
+        id: &ContentId,
+    ) -> Result<Vec<u8>, ContentSourceError> {
         self.fetch_from(&provider.peer, id)
     }
 }
@@ -215,7 +226,11 @@ impl ContentSource for LocalFallbackSource {
         providers
     }
 
-    fn fetch_block(&self, provider: &Provider, id: &ContentId) -> Result<Vec<u8>, ContentSourceError> {
+    fn fetch_block(
+        &self,
+        provider: &Provider,
+        id: &ContentId,
+    ) -> Result<Vec<u8>, ContentSourceError> {
         if provider.peer == PeerId::new("local-cache") {
             self.local
                 .lock()
@@ -256,7 +271,10 @@ mod tests {
     fn missing_content_is_not_found() {
         let net = PeerNetwork::new();
         let id = digest(b"nobody has this");
-        assert!(matches!(net.resolve(&id), Err(ContentSourceError::NotFound(_))));
+        assert!(matches!(
+            net.resolve(&id),
+            Err(ContentSourceError::NotFound(_))
+        ));
     }
 
     #[test]

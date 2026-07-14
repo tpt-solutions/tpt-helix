@@ -120,6 +120,13 @@ pub fn build_layout_tree(dom: &RcDom, rules: &[StyleRule]) -> taffy::TaffyResult
 /// Computes layout for `layout.tree` against a viewport of `width`x`height`
 /// logical pixels.
 pub fn compute(layout: &mut DocumentLayout, width: f32, height: f32) -> taffy::TaffyResult<()> {
+    // The root element represents the viewport: size it to the available space
+    // so percentage widths/heights in descendants resolve against a definite
+    // base instead of collapsing to zero.
+    let mut root_style = layout.tree.style(layout.root)?.clone();
+    root_style.size.width = length(width);
+    root_style.size.height = length(height);
+    layout.tree.set_style(layout.root, root_style)?;
     layout.tree.compute_layout(
         layout.root,
         Size {
@@ -153,10 +160,10 @@ mod tests {
 
         fn find_row(tree: &TaffyTree<Handle>, node: NodeId) -> Option<NodeId> {
             let handle = tree.get_node_context(node)?;
-            if let NodeData::Element { attrs, .. } = &handle.data {
-                if attrs.borrow().iter().any(|a| &*a.value == "row") {
-                    return Some(node);
-                }
+            if let NodeData::Element { attrs, .. } = &handle.data
+                && attrs.borrow().iter().any(|a| &*a.value == "row")
+            {
+                return Some(node);
             }
             tree.children(node)
                 .ok()?
@@ -185,10 +192,10 @@ mod tests {
 
         fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
             let handle = tree.get_node_context(node)?;
-            if let NodeData::Element { attrs, .. } = &handle.data {
-                if attrs.borrow().iter().any(|a| &*a.value == target) {
-                    return Some(node);
-                }
+            if let NodeData::Element { attrs, .. } = &handle.data
+                && attrs.borrow().iter().any(|a| &*a.value == target)
+            {
+                return Some(node);
             }
             tree.children(node)
                 .ok()?
@@ -215,10 +222,10 @@ mod tests {
 
         fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
             let handle = tree.get_node_context(node)?;
-            if let NodeData::Element { attrs, .. } = &handle.data {
-                if attrs.borrow().iter().any(|a| &*a.value == target) {
-                    return Some(node);
-                }
+            if let NodeData::Element { attrs, .. } = &handle.data
+                && attrs.borrow().iter().any(|a| &*a.value == target)
+            {
+                return Some(node);
             }
             tree.children(node)
                 .ok()?
@@ -248,10 +255,10 @@ mod tests {
 
         fn find(tree: &TaffyTree<Handle>, node: NodeId, target: &str) -> Option<NodeId> {
             let handle = tree.get_node_context(node)?;
-            if let NodeData::Element { attrs, .. } = &handle.data {
-                if attrs.borrow().iter().any(|a| &*a.value == target) {
-                    return Some(node);
-                }
+            if let NodeData::Element { attrs, .. } = &handle.data
+                && attrs.borrow().iter().any(|a| &*a.value == target)
+            {
+                return Some(node);
             }
             tree.children(node)
                 .ok()?

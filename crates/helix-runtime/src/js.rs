@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rquickjs::{Context, Runtime};
 
@@ -55,7 +55,7 @@ impl Interpreter {
             if d == 0 {
                 return false;
             }
-            let now = Instant::now()
+            let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
@@ -82,7 +82,7 @@ impl Interpreter {
         source: &str,
         timeout: Duration,
     ) -> Result<Option<String>, JsError> {
-        let now = Instant::now()
+        let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
@@ -187,5 +187,55 @@ mod tests {
                 .unwrap(),
             Some("2".to_string())
         );
+    }
+
+    /// Regression test for Q1: untrusted/dynamic legacy JS that never terminates
+    /// must be *aborted* by the per-eval deadline, and the interpreter must remain
+    /// usable afterwards (the deadline is cleared on abort).
+    ///
+    /// The eval runs on a worker thread so a non-interrupting engine (or a future
+    /// regression that disables the interrupt handler) fails the test via a
+    /// `recv_timeout` rather than hanging the whole suite.
+    #[test]
+    fn eval_with_timeout_aborts_infinite_loop() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let interp = Interpreter::new().unwrap();
+            // An infinite loop must be aborted once the deadline passes.
+            let aborted = interp.eval_with_timeout("while(true){}", Duration::from_millis(200));
+            // The deadline is cleared after the abort, so later evals still work.
+            let recovered = interp.eval_with_timeout("21 * 2", Duration::from_secs(1));
+            let _ = tx.send((aborted, recovered));
+        });
+
+        let (aborted, recovered) = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("eval was not aborted within its deadline — timeout/abort behavior is broken");
+
+        assert!(
+            aborted.is_err(),
+            "an infinite loop was not aborted by the timeout"
+        );
+        assert_eq!(
+            recovered.expect("interpreter must recover after abort"),
+            Some("42".to_string())
+        );
+    }
+
+    /// The sandbox exposes no host functions, so a fresh interpreter must not
+    /// be able to reach host/IO machinery (regression guard for the Q1 sandbox).
+    #[test]
+    fn sandboxed_interpreter_has_no_bridged_host_functions() {
+        let interp = Interpreter::new().unwrap();
+        // `__helix_*` host hooks are only installed by `js_bridge`; a bare
+        // interpreter must report them as undefined rather than silently
+        // exposing host authority.
+        let err = interp
+            .eval_to_string("typeof __helix_create_element")
+            .unwrap();
+        assert_eq!(err, Some("undefined".to_string()));
     }
 }

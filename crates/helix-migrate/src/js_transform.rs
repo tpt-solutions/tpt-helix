@@ -54,7 +54,7 @@ impl<'a> Transformer<'a> {
     /// Apply all collected edits and return the rewritten source.
     pub fn apply(mut self) -> String {
         // Largest start first so earlier spans are unaffected by later splicing.
-        self.edits.sort_by(|a, b| b.start.cmp(&a.start));
+        self.edits.sort_by_key(|b| std::cmp::Reverse(b.start));
         let mut out = self.source.to_string();
         for e in &self.edits {
             out.replace_range(e.start..e.end, &e.replacement);
@@ -136,10 +136,10 @@ impl Rule for VarToLetRule {
     fn rewrite(&self, node: Node, _source: &str, t: &mut Transformer) {
         // The leading keyword (`const`/`let`/`var`) is the first child and is an
         // anonymous node whose kind *is* the keyword text.
-        if let Some(first) = node.child(0) {
-            if matches!(first.kind(), "const" | "var") {
-                t.replace_node(first, "let");
-            }
+        if let Some(first) = node.child(0)
+            && matches!(first.kind(), "const" | "var")
+        {
+            t.replace_node(first, "let");
         }
     }
 }

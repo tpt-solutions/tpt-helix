@@ -132,12 +132,11 @@ fn collect_import_clause(child: Node, src: &[u8], imp: &mut Import) {
         "named_imports" => {
             let mut inner = child.walk();
             for spec in child.named_children(&mut inner) {
-                if spec.kind() == "import_specifier" {
-                    if let Some(name_node) = spec.child_by_field_name("name") {
-                        if let Ok(name) = name_node.utf8_text(src) {
-                            imp.names.push(name.to_string());
-                        }
-                    }
+                if spec.kind() == "import_specifier"
+                    && let Some(name_node) = spec.child_by_field_name("name")
+                    && let Ok(name) = name_node.utf8_text(src)
+                {
+                    imp.names.push(name.to_string());
                 }
             }
         }
@@ -224,5 +223,145 @@ fn handle_export(node: Node, src: &[u8], map: &mut ApiSurfaceMap) {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ApiSurfaceMap, ExportKind, Import};
+
+    fn import(module: &str, names: &[&str], namespace: bool, default: bool) -> Import {
+        Import {
+            module: module.to_string(),
+            names: names.iter().map(|s| s.to_string()).collect(),
+            namespace,
+            default,
+        }
+    }
+
+    fn contains_import(map: &ApiSurfaceMap, imp: &Import) -> bool {
+        map.imports.iter().any(|i| {
+            i.module == imp.module
+                && i.names == imp.names
+                && i.namespace == imp.namespace
+                && i.default == imp.default
+        })
+    }
+
+    #[test]
+    fn js_imports_all_forms() {
+        let src = r#"
+            import React, { useState, useEffect } from "react";
+            import * as utils from "./utils";
+            import def from "mod";
+            import only_named from "other";
+        "#;
+        let map = discover_js(src);
+
+        assert!(contains_import(
+            &map,
+            &import("react", &["useState", "useEffect"], false, true)
+        ));
+        assert!(contains_import(&map, &import("./utils", &[], true, false)));
+        assert!(contains_import(&map, &import("mod", &[], false, true)));
+        assert!(contains_import(&map, &import("other", &[], false, true)));
+        assert_eq!(map.imports.len(), 4);
+    }
+
+    #[test]
+    fn js_exports_all_kinds() {
+        let src = r#"
+            export function start() {}
+            export const VERSION = "1.0";
+            export class Service {}
+            export default function () {}
+            export default MyClass2 {}
+        "#;
+        let map = discover_js(src);
+
+        let names: Vec<(&str, ExportKind)> = map
+            .exports
+            .iter()
+            .map(|e| (e.name.as_str(), e.kind.clone()))
+            .collect();
+        assert!(names.contains(&("start", ExportKind::Function)));
+        assert!(names.contains(&("VERSION", ExportKind::Const)));
+        assert!(names.contains(&("Service", ExportKind::Class)));
+        assert!(names.contains(&("default", ExportKind::Default)));
+        assert!(names.len() >= 4);
+    }
+
+    #[test]
+    fn ts_reexport_surfaces_dependency() {
+        let src = r#"export { a, b } from "./other";"#;
+        let map = discover_ts(src);
+        assert_eq!(map.imports.len(), 1);
+        assert_eq!(map.imports[0].module, "./other");
+        assert!(map.exports.is_empty());
+    }
+
+    #[test]
+    fn top_level_functions_collected() {
+        let src = r#"
+            function helper() {}
+            function another() {}
+            export function exposed() {}
+        "#;
+        let map = discover_js(src);
+        assert_eq!(map.functions, vec!["helper", "another"]);
+        assert!(map.exports.iter().any(|e| e.name == "exposed"));
+    }
+
+    #[test]
+    fn tsx_embedded_jsx_does_not_break_parse() {
+        let src = r#"
+            import React from "react";
+            export function App() {
+                return <div className="root"><span>hello</span></div>;
+            }
+        "#;
+        let map = discover_tsx(src);
+        assert!(contains_import(&map, &import("react", &[], false, true)));
+        assert!(map.exports.iter().any(|e| e.name == "App"));
+    }
+
+    #[test]
+    fn comments_and_strings_ignored_unlike_tokenizer() {
+        // A string containing an import-like token must not be misread.
+        let src = r#"
+            const s = "import { fake } from 'nope'";
+            export const label = s;
+        "#;
+        let map = discover_js(src);
+        assert!(map.imports.is_empty());
+        assert!(map.exports.iter().any(|e| e.name == "label"));
+    }
+
+    #[test]
+    fn empty_source_yields_empty_map() {
+        assert_eq!(discover_js("").symbol_count(), 0);
+        assert_eq!(discover_ts("  \n  ").symbol_count(), 0);
+        assert_eq!(discover_tsx("").symbol_count(), 0);
+    }
+
+    #[test]
+    fn ast_matches_tokenizer_on_clean_source() {
+        // On comment/string-free source the two extractors should agree on the
+        // import module set (the reference AST impl is the source of truth).
+        let src = r#"
+            import a from "mod-a";
+            import { b, c } from "mod-b";
+            export function f() {}
+            export const K = 1;
+            function local() {}
+        "#;
+        let ast = discover_ast(src, SourceLang::JavaScript);
+        let tok = crate::discover(src);
+        let ast_mods: std::collections::BTreeSet<&str> =
+            ast.imports.iter().map(|i| i.module.as_str()).collect();
+        let tok_mods: std::collections::BTreeSet<&str> =
+            tok.imports.iter().map(|i| i.module.as_str()).collect();
+        assert_eq!(ast_mods, tok_mods);
     }
 }

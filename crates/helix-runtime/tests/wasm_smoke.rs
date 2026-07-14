@@ -12,7 +12,7 @@ use helix_runtime::wasm::{Engine, Host, Module};
 #[test]
 fn loads_instantiates_and_runs_hello_dom() {
     let bytes = include_bytes!("hello_dom.wasm");
-    assert!(bytes.len() > 0);
+    assert!(!bytes.is_empty());
 
     let engine = Engine::default();
 

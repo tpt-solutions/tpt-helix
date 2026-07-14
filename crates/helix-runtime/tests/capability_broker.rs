@@ -6,10 +6,10 @@
 use helix_runtime::capability::{
     Capability, CapabilityBroker, DomScope, HostPattern, StorageScope,
 };
-use helix_runtime::stub::{Player, Request, Response, RuntimeState, VideoConfig};
+use helix_runtime::stub::{Request, Response, RuntimeState, VideoConfig};
 
 fn state_with(app: &str, grants: &[Capability]) -> RuntimeState {
-    let mut broker = CapabilityBroker::new();
+    let broker = CapabilityBroker::new();
     let mut state = RuntimeState::with_broker(app.to_string(), broker);
     for g in grants {
         state.grant(g.clone());

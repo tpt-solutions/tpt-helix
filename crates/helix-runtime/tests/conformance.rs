@@ -8,10 +8,6 @@
 use helix_runtime::stub::RuntimeStub;
 use helix_wit::host::exports::helix::runtime::media::VideoConfig;
 use helix_wit::host::exports::helix::runtime::network::{Request, Response};
-use helix_wit::host::exports::helix::runtime::{
-    dom::Guest as _, media::Guest as _, network::Guest as _, storage::Guest as _,
-};
-
 fn req(url: &str) -> Request {
     Request {
         method: "GET".to_string(),

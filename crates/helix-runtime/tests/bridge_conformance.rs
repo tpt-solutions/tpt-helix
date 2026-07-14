@@ -17,7 +17,23 @@ use helix_wit::host::exports::helix::runtime::network::Response;
 /// against a freshly-reset host state. Returns the string coercion of the
 /// script's final expression (e.g. an element id).
 fn run_bridged(source: &str) -> String {
+    run_bridged_with(source, None)
+}
+
+/// Like [`run_bridged`], but registers a canned `fetch` response *after* the
+/// host state is reset (so it survives into the evaluation), keyed by `url`.
+fn run_bridged_with(source: &str, fetch: Option<(&str, &[u8])>) -> String {
     let _stub = RuntimeStub::new();
+    if let Some((url, body)) = fetch {
+        _stub.register_fetch(
+            url,
+            Response {
+                status: 200,
+                headers: vec![],
+                body: body.to_vec(),
+            },
+        );
+    }
     let interpreter = Interpreter::new().unwrap();
     interpreter
         .with(|ctx| {
@@ -47,8 +63,9 @@ fn dom_create_element_assigns_unique_ids() {
     let a: u64 = parts.next().unwrap().parse().unwrap();
     let b: u64 = parts.next().unwrap().parse().unwrap();
     assert_ne!(a, b);
-    assert_eq!(RuntimeStub::element(el(a)).unwrap().tag, "div");
-    assert_eq!(RuntimeStub::element(el(b)).unwrap().tag, "span");
+    let stub = RuntimeStub;
+    assert_eq!(stub.element(el(a)).unwrap().tag, "div");
+    assert_eq!(stub.element(el(b)).unwrap().tag, "span");
 }
 
 #[test]
@@ -60,7 +77,8 @@ fn dom_set_text_and_attribute() {
          e;",
     );
     let id: u64 = out.trim().parse().unwrap();
-    let node = RuntimeStub::element(el(id)).unwrap();
+    let stub = RuntimeStub;
+    let node = stub.element(el(id)).unwrap();
     assert_eq!(node.text, "hi");
     assert_eq!(
         node.attributes.get("class").map(String::as_str),
@@ -77,10 +95,11 @@ fn dom_append_child_builds_tree() {
          parent;",
     );
     let parent_id: u64 = out.trim().parse().unwrap();
-    let node = RuntimeStub::element(el(parent_id)).unwrap();
+    let stub = RuntimeStub;
+    let node = stub.element(el(parent_id)).unwrap();
     assert_eq!(node.children.len(), 1);
     let child_id = node.children[0].id;
-    assert_eq!(RuntimeStub::element(el(child_id)).unwrap().tag, "li");
+    assert_eq!(stub.element(el(child_id)).unwrap().tag, "li");
 }
 
 #[test]
@@ -92,8 +111,9 @@ fn dom_on_click_registers_handlers() {
          e;",
     );
     let id: u64 = out.trim().parse().unwrap();
-    assert_eq!(RuntimeStub::click_count(el(id)), 2);
-    assert_eq!(RuntimeStub::click_handler_ids(el(id)), Some(vec![7u64, 9]));
+    let stub = RuntimeStub;
+    assert_eq!(stub.click_count(el(id)), 2);
+    assert_eq!(stub.click_handler_ids(el(id)), Some(vec![7u64, 9]));
 }
 
 #[test]
@@ -113,15 +133,11 @@ fn storage_roundtrip_through_bridge() {
 
 #[test]
 fn network_fetch_through_bridge() {
-    let _stub = RuntimeStub::new();
-    _stub.register_fetch(
-        "https://example.com/",
-        Response {
-            status: 200,
-            headers: vec![],
-            body: b"hello".to_vec(),
-        },
+    // Register the canned response inside the bridged context (after the host
+    // state is reset) so it survives into the evaluation.
+    let body = run_bridged_with(
+        "__helix_fetch('https://example.com/');",
+        Some(("https://example.com/", b"hello")),
     );
-    let body = run_bridged("__helix_fetch('https://example.com/');");
     assert_eq!(body, "hello");
 }

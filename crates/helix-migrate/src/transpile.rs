@@ -87,11 +87,12 @@ fn parse_nodes(chars: &[char], mut pos: usize, stop: Option<&str>) -> (Vec<Node>
         if chars[pos] == '<' {
             // Comment / doctype / declaration.
             if pos + 1 < chars.len() && (chars[pos + 1] == '!' || chars[pos + 1] == '?') {
-                if pos + 3 < chars.len() && &chars[pos + 1..pos + 4] == &['!', '-', '-'] {
-                    if let Some(end) = find_substr(chars, pos + 4, "-->") {
-                        pos = end;
-                        continue;
-                    }
+                if pos + 3 < chars.len()
+                    && chars[pos + 1..pos + 4] == ['!', '-', '-']
+                    && let Some(end) = find_substr(chars, pos + 4, "-->")
+                {
+                    pos = end;
+                    continue;
                 }
                 if let Some(end) = find_char(chars, pos + 1, '>') {
                     pos = end + 1;
@@ -105,10 +106,10 @@ fn parse_nodes(chars: &[char], mut pos: usize, stop: Option<&str>) -> (Vec<Node>
                 let (name, end) = read_tag_name(chars, pos + 2);
                 // `end` points at '>'; advance past it so the caller does not
                 // treat the '>' as a stray text node.
-                if let Some(stop) = stop {
-                    if name.eq_ignore_ascii_case(stop) {
-                        return (nodes, end + 1);
-                    }
+                if let Some(stop) = stop
+                    && name.eq_ignore_ascii_case(stop)
+                {
+                    return (nodes, end + 1);
                 }
                 pos = end + 1;
                 continue;

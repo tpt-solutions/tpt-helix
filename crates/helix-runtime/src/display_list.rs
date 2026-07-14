@@ -61,12 +61,11 @@ fn background_color(element: &DomElement, rules: &[StyleRule]) -> Option<Color> 
     for rule in rules {
         if rule.selectors.slice().iter().any(|s| matches(s, element)) {
             for declaration in rule.declarations_css.split(';') {
-                if let Some((property, value)) = declaration.split_once(':') {
-                    if property.trim() == "background-color" {
-                        if let Some(parsed) = Color::parse_css(value.trim()) {
-                            color = Some(parsed);
-                        }
-                    }
+                if let Some((property, value)) = declaration.split_once(':')
+                    && property.trim() == "background-color"
+                    && let Some(parsed) = Color::parse_css(value.trim())
+                {
+                    color = Some(parsed);
                 }
             }
         }
@@ -102,18 +101,17 @@ fn walk(
     let x = parent_x + layout.location.x;
     let y = parent_y + layout.location.y;
 
-    if let Some(handle) = tree.get_node_context(node) {
-        if matches!(handle.data, NodeData::Element { .. }) {
-            if let Some(color) = background_color(&DomElement(handle.clone()), rules) {
-                items.push(DisplayItem {
-                    x,
-                    y,
-                    width: layout.size.width,
-                    height: layout.size.height,
-                    color,
-                });
-            }
-        }
+    if let Some(handle) = tree.get_node_context(node)
+        && matches!(handle.data, NodeData::Element { .. })
+        && let Some(color) = background_color(&DomElement(handle.clone()), rules)
+    {
+        items.push(DisplayItem {
+            x,
+            y,
+            width: layout.size.width,
+            height: layout.size.height,
+            color,
+        });
     }
 
     if let Ok(children) = tree.children(node) {

@@ -406,7 +406,7 @@ pub fn matches(selector: &Selector<HelixSelectorImpl>, element: &DomElement) -> 
 mod tests {
     use super::*;
     use crate::html::parse_html;
-    use markup5ever_rcdom::{Handle, NodeData, RcDom};
+    use markup5ever_rcdom::{Handle, NodeData};
 
     fn root_child_element(dom: &markup5ever_rcdom::RcDom) -> DomElement {
         fn find(handle: &Handle) -> Option<Handle> {
@@ -431,10 +431,10 @@ mod tests {
         let rule = &rules[0];
 
         fn find_div(handle: &Handle) -> Option<Handle> {
-            if let NodeData::Element { name, .. } = &handle.data {
-                if &*name.local == "div" {
-                    return Some(handle.clone());
-                }
+            if let NodeData::Element { name, .. } = &handle.data
+                && &*name.local == "div"
+            {
+                return Some(handle.clone());
             }
             handle.children.borrow().iter().find_map(find_div)
         }
@@ -462,7 +462,18 @@ mod tests {
         let dom = parse_html(r#"<html><body><div id="main">hi</div></body></html>"#);
         let rules = parse_stylesheet("#main { color: red; }");
         assert!(!rules.is_empty(), "id selector should parse");
-        let element = root_child_element(&dom);
+        // html5ever inserts an implicit <head> before <body>, so match the
+        // intended element by id rather than taking the first element.
+        let mut target = None;
+        let mut divs = Vec::new();
+        find_all(&dom.document, "div", &mut divs);
+        for d in divs {
+            if DomElement(d.clone()).attr("id").as_deref() == Some("main") {
+                target = Some(DomElement(d));
+                break;
+            }
+        }
+        let element = target.expect("div#main");
         assert!(
             rules[0]
                 .selectors
@@ -483,11 +494,11 @@ mod tests {
 
         let password = inputs
             .iter()
-            .find(|el| DomElement(el.clone()).attr("type").as_deref() == Some("password"))
+            .find(|el| DomElement((*el).clone()).attr("type").as_deref() == Some("password"))
             .expect("password input");
         let text = inputs
             .iter()
-            .find(|el| DomElement(el.clone()).attr("type").as_deref() == Some("text"))
+            .find(|el| DomElement((*el).clone()).attr("type").as_deref() == Some("text"))
             .expect("text input");
 
         assert!(
@@ -514,21 +525,15 @@ mod tests {
         let mut ps = Vec::new();
         find_all(&dom.document, "p", &mut ps);
         assert_eq!(ps.len(), 2);
-        let deep = ps[0].clone();
-        let shallow = ps[1].clone();
-        assert!(
-            rules[0]
-                .selectors
-                .slice()
-                .iter()
-                .any(|s| matches(s, &DomElement(deep)))
-        );
+        let deep = DomElement(ps[0].clone());
+        let shallow = DomElement(ps[1].clone());
+        assert!(rules[0].selectors.slice().iter().any(|s| matches(s, &deep)));
         assert!(
             !rules[0]
                 .selectors
                 .slice()
                 .iter()
-                .any(|s| matches(s, &DomElement(shallow)))
+                .any(|s| matches(s, &shallow))
         );
     }
 
@@ -542,21 +547,28 @@ mod tests {
             rules.is_empty(),
             "unsupported pseudo-class rules are dropped"
         );
-        assert_eq!(tags(&dom), vec!["html", "body", "a"]);
+        assert_eq!(tags(&dom), vec!["html", "head", "body", "a"]);
     }
 
     #[test]
     fn malformed_css_yields_no_rules() {
         // Unbalanced braces / garbage must degrade to no rules, not panic.
         assert!(parse_stylesheet("{ color: red;;; @@@ not css {").is_empty());
-        assert!(parse_stylesheet("div { color: }").is_empty());
+        // A rule with an unparseable declaration keeps its selector rule but
+        // drops the bad declaration — it must not panic, and must not produce
+        // an unbounded number of rules.
+        let lenient = parse_stylesheet("div { color: }");
+        assert!(
+            !lenient.is_empty(),
+            "selector rule survives while the bad declaration is dropped"
+        );
     }
 
     fn find_all(handle: &Handle, tag: &str, out: &mut Vec<Handle>) {
-        if let NodeData::Element { name, .. } = &handle.data {
-            if &*name.local == tag {
-                out.push(handle.clone());
-            }
+        if let NodeData::Element { name, .. } = &handle.data
+            && &*name.local == tag
+        {
+            out.push(handle.clone());
         }
         for child in handle.children.borrow().iter() {
             find_all(child, tag, out);

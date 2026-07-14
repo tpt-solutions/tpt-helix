@@ -183,25 +183,23 @@ pub fn discover(source: &str) -> ApiSurfaceMap {
                 if let Some(n) = name
                     .split(|c: char| !c.is_alphanumeric() && c != '_')
                     .next()
+                    && !n.is_empty()
                 {
-                    if !n.is_empty() {
-                        map.exports.push(Export {
-                            kind: ExportKind::Function,
-                            name: n.to_string(),
-                        });
-                    }
+                    map.exports.push(Export {
+                        kind: ExportKind::Function,
+                        name: n.to_string(),
+                    });
                 }
             } else if let Some(name) = rest.strip_prefix("class ") {
                 if let Some(n) = name
                     .split(|c: char| !c.is_alphanumeric() && c != '_')
                     .next()
+                    && !n.is_empty()
                 {
-                    if !n.is_empty() {
-                        map.exports.push(Export {
-                            kind: ExportKind::Class,
-                            name: n.to_string(),
-                        });
-                    }
+                    map.exports.push(Export {
+                        kind: ExportKind::Class,
+                        name: n.to_string(),
+                    });
                 }
             } else if rest.starts_with("default ") {
                 map.exports.push(Export {
@@ -218,27 +216,24 @@ pub fn discover(source: &str) -> ApiSurfaceMap {
                     .trim_start()
                     .split(|c: char| !c.is_alphanumeric() && c != '_')
                     .next()
+                    && !name.is_empty()
                 {
-                    if !name.is_empty() {
-                        map.exports.push(Export {
-                            kind: ExportKind::Const,
-                            name: name.to_string(),
-                        });
-                    }
+                    map.exports.push(Export {
+                        kind: ExportKind::Const,
+                        name: name.to_string(),
+                    });
                 }
             }
             continue;
         }
 
-        if let Some(name) = line.strip_prefix("function ") {
-            if let Some(n) = name
+        if let Some(name) = line.strip_prefix("function ")
+            && let Some(n) = name
                 .split(|c: char| !c.is_alphanumeric() && c != '_')
                 .next()
-            {
-                if !n.is_empty() {
-                    map.functions.push(n.to_string());
-                }
-            }
+            && !n.is_empty()
+        {
+            map.functions.push(n.to_string());
         }
     }
 

@@ -82,12 +82,21 @@ impl Representation {
         if t.initialization.is_empty() {
             return None;
         }
-        Some(substitute(
-            &t.initialization,
-            &self.id,
-            self.bandwidth,
-            t.start_number,
-            0,
+        let base = if self.base_url.is_empty() {
+            String::new()
+        } else {
+            ensure_trailing_slash(&self.base_url)
+        };
+        Some(format!(
+            "{}{}",
+            base,
+            substitute(
+                &t.initialization,
+                &self.id,
+                self.bandwidth,
+                t.start_number,
+                0
+            )
         ))
     }
 
@@ -103,7 +112,11 @@ impl Representation {
         } else {
             ensure_trailing_slash(&self.base_url)
         };
-        let start = if t.start_number == 0 { 1 } else { t.start_number };
+        let start = if t.start_number == 0 {
+            1
+        } else {
+            t.start_number
+        };
         (0..count)
             .map(|i| {
                 let n = start + i;
@@ -226,8 +239,9 @@ pub fn parse_mpd(xml: &str) -> Result<Mpd, DashError> {
                         .get("media")
                         .cloned()
                         .or_else(|| {
-                            find_element(&seg_inner, "BaseURL")
-                                .map(|(_, i)| format!("{}{}", ensure_trailing_slash(&rep_base), i.trim()))
+                            find_element(&seg_inner, "BaseURL").map(|(_, i)| {
+                                format!("{}{}", ensure_trailing_slash(&rep_base), i.trim())
+                            })
                         })
                         .unwrap_or_default();
                     let dur = seg_attrs
@@ -376,8 +390,13 @@ impl DashClient {
 
     /// The representation selected for the current budget.
     pub fn current(&self) -> Option<Representation> {
-        select_representation(&self.mpd, &self.content_type, self.bandwidth_budget, self.policy)
-            .cloned()
+        select_representation(
+            &self.mpd,
+            &self.content_type,
+            self.bandwidth_budget,
+            self.policy,
+        )
+        .cloned()
     }
 
     /// All segment URLs for the currently-selected representation.
@@ -393,7 +412,7 @@ impl DashClient {
         if !rep.segments.is_empty() {
             return rep.segments.clone();
         }
-        let count = self.mpd.segment_count(&rep);
+        let count = self.mpd.segment_count(rep);
         rep.templated_segments(count)
     }
 }
@@ -461,7 +480,7 @@ fn parse_duration_attr(v: Option<&String>) -> f64 {
 }
 
 /// Find the first occurrence of `tag` and return its attributes + inner text.
-fn find_element<'a>(xml: &'a str, tag: &str) -> Option<(HashMap<String, String>, String)> {
+fn find_element(xml: &str, tag: &str) -> Option<(HashMap<String, String>, String)> {
     let open = format!("<{tag}");
     let start = xml.find(&open)?;
     // Find the matching '>' that closes the opening tag (skip self-closing).
@@ -497,19 +516,25 @@ fn find_element<'a>(xml: &'a str, tag: &str) -> Option<(HashMap<String, String>,
     Some((attrs, inner))
 }
 
-/// Find all non-nested occurrences of `tag`.
-fn find_all<'a>(xml: &'a str, tag: &str) -> Vec<(HashMap<String, String>, String)> {
+/// Find all occurrences of `tag`, advancing the scan correctly past each
+/// matched element (including its full span) so nested/adjacent elements of
+/// the same name are not double-counted.
+fn find_all(xml: &str, tag: &str) -> Vec<(HashMap<String, String>, String)> {
+    let open = format!("<{tag}");
     let mut out = Vec::new();
     let mut pos = 0;
-    while let Some((attrs, inner)) = find_element(&xml[pos..], tag) {
-        // Re-locate the consumed slice to advance the scan past this element.
-        out.push((attrs, inner.clone()));
-        let consumed = element_span(&xml[pos..], tag);
-        eprintln!("DBG find_all tag={tag} pos={pos} consumed={consumed} next={:?}", &xml[pos..pos+consumed.min(25)].replace('\n'," "));
-        pos += consumed;
-        if consumed == 0 {
+    while pos < xml.len() {
+        let slice = &xml[pos..];
+        let Some(m) = slice.find(&open) else { break };
+        let span = element_span(&slice[m..], tag);
+        if span == 0 {
             break;
         }
+        let elem = &slice[m..m + span];
+        if let Some(parsed) = find_element(elem, tag) {
+            out.push(parsed);
+        }
+        pos += m + span;
     }
     out
 }
@@ -565,7 +590,12 @@ fn parse_attrs(tag_text: &str) -> HashMap<String, String> {
             continue;
         }
         let name_start = i;
-        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-' || bytes[i] == b':') {
+        while i < bytes.len()
+            && (bytes[i].is_ascii_alphanumeric()
+                || bytes[i] == b'_'
+                || bytes[i] == b'-'
+                || bytes[i] == b':')
+        {
             i += 1;
         }
         let name = tag_text[name_start..i].to_string();
@@ -596,7 +626,11 @@ fn parse_attrs(tag_text: &str) -> HashMap<String, String> {
             i += 1;
         } else {
             let val_start = i;
-            while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'>' && bytes[i] != b'/' {
+            while i < bytes.len()
+                && !bytes[i].is_ascii_whitespace()
+                && bytes[i] != b'>'
+                && bytes[i] != b'/'
+            {
                 i += 1;
             }
             let val = tag_text[val_start..i].to_string();
@@ -628,7 +662,11 @@ mod tests {
     fn parses_manifest_structure() {
         let mpd = parse_mpd(SAMPLE).expect("parse");
         for a in &mpd.adaptation_sets {
-            eprintln!("aset type={:?} reps={}", a.content_type, a.representations.len());
+            eprintln!(
+                "aset type={:?} reps={}",
+                a.content_type,
+                a.representations.len()
+            );
             for r in &a.representations {
                 eprintln!("   rep id={} ct={}", r.id, r.mime_type);
             }
@@ -651,28 +689,29 @@ mod tests {
         assert_eq!(segs[0].url, "https://cdn.example.com/vod/v2/1.m4s");
         assert_eq!(segs[1].url, "https://cdn.example.com/vod/v2/2.m4s");
         assert_eq!(segs[0].duration_secs, 2.0);
-        assert_eq!(v2.initialization_url(), Some("https://cdn.example.com/vod/v2/init.mp4".into()));
+        assert_eq!(
+            v2.initialization_url(),
+            Some("https://cdn.example.com/vod/v2/init.mp4".into())
+        );
     }
 
     #[test]
     fn abr_picks_best_within_budget() {
         let mpd = parse_mpd(SAMPLE).unwrap();
-        let best = select_representation(&mpd, "video", 1_500_000, AbrPolicy::MaximizeQuality)
-            .unwrap();
+        let best =
+            select_representation(&mpd, "video", 1_500_000, AbrPolicy::MaximizeQuality).unwrap();
         assert_eq!(best.id, "v2");
-        let cons = select_representation(&mpd, "video", 1_500_000, AbrPolicy::Conservative)
-            .unwrap();
+        let cons =
+            select_representation(&mpd, "video", 1_500_000, AbrPolicy::Conservative).unwrap();
         assert_eq!(cons.id, "v2");
-        let low = select_representation(&mpd, "video", 600_000, AbrPolicy::Conservative)
-            .unwrap();
+        let low = select_representation(&mpd, "video", 600_000, AbrPolicy::Conservative).unwrap();
         assert_eq!(low.id, "v1");
     }
 
     #[test]
     fn abr_falls_back_to_lowest_below_ladder() {
         let mpd = parse_mpd(SAMPLE).unwrap();
-        let pick = select_representation(&mpd, "video", 100, AbrPolicy::MaximizeQuality)
-            .unwrap();
+        let pick = select_representation(&mpd, "video", 100, AbrPolicy::MaximizeQuality).unwrap();
         assert_eq!(pick.id, "v1");
     }
 

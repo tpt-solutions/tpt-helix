@@ -31,3 +31,8 @@ sha2 = "0.10"
 
 [dev-dependencies]
 helix-wit = { path = "../helix-wit" }
+criterion = "0.5"
+
+[[bench]]
+name = "layout_bench"
+harness = false

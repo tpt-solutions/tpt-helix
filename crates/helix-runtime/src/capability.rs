@@ -211,7 +211,7 @@ impl Default for CapabilityBroker {
         let stack_var = 0u64;
         let seed = now_secs()
             .wrapping_mul(6364_1362_6637_8788)
-            .wrapping_add(TOKEN_COUNTER.fetch_add(1, Ordering::Relaxed) as u64)
+            .wrapping_add(TOKEN_COUNTER.fetch_add(1, Ordering::Relaxed))
             .wrapping_add(&stack_var as *const _ as usize as u64);
         CapabilityBroker {
             secret: seed | 1,
@@ -312,11 +312,11 @@ impl CapabilityBroker {
         }
         let mut any = false;
         for gid in to_revoke {
-            if let Some(g) = self.grants.get_mut(&gid) {
-                if !g.revoked {
-                    g.revoked = true;
-                    any = true;
-                }
+            if let Some(g) = self.grants.get_mut(&gid)
+                && !g.revoked
+            {
+                g.revoked = true;
+                any = true;
             }
         }
         any
@@ -527,7 +527,11 @@ pub fn host_of(url: &str) -> String {
         .split(['/', '?', '#'])
         .next()
         .unwrap_or(after_scheme);
-    authority.split('@').last().unwrap_or(authority).to_string()
+    authority
+        .split('@')
+        .next_back()
+        .unwrap_or(authority)
+        .to_string()
 }
 
 #[cfg(test)]

@@ -45,16 +45,16 @@ pub fn rasterize_display_list(items: &[DisplayItem], width: u32, height: u32) ->
                 let dst = buf.get_pixel_mut(x, y);
                 let (dr, dg, db, da) = (dst[0], dst[1], dst[2], dst[3]);
                 // Standard "over" operator in straight (non-premultiplied) alpha.
-                let out_a = ca + (da as u32) * (255 - ca as u32) / 255;
+                let out_a = ca as u32 + (da as u32) * (255 - ca as u32) / 255;
                 let out_r = (cr as u32 * ca as u32
                     + dr as u32 * da as u32 * (255 - ca as u32) / 255)
-                    / out_a.max(1) as u32;
+                    / out_a.max(1);
                 let out_g = (cg as u32 * ca as u32
                     + dg as u32 * da as u32 * (255 - ca as u32) / 255)
-                    / out_a.max(1) as u32;
+                    / out_a.max(1);
                 let out_b = (cb as u32 * ca as u32
                     + db as u32 * da as u32 * (255 - ca as u32) / 255)
-                    / out_a.max(1) as u32;
+                    / out_a.max(1);
                 *dst = Rgba([out_r as u8, out_g as u8, out_b as u8, out_a as u8]);
             }
         }
@@ -175,10 +175,11 @@ mod tests {
             },
         )];
         let img = rasterize_display_list(&items, 10, 10);
-        // 50% black over transparent -> mid grey, 50% alpha.
+        // 50% black over transparent -> mid grey, ~50% alpha. `to_bytes`
+        // rounds half (127.5) up to 128, so assert the actual rounded value.
         assert_eq!(
             img.get_pixel(5, 5),
-            &Rgba([0, 0, 0, 127]),
+            &Rgba([0, 0, 0, 128]),
             "half-alpha black"
         );
     }

@@ -69,6 +69,11 @@ tracks execution, not design decisions.
 
 ### Content-addressed distribution (libp2p integration)
 - [ ] Integrate `libp2p` for DHT + bitswap content resolution
+      — PARTIAL: `crates/helix-runtime/src/p2p.rs` models the DHT/bitswap
+      contract via a `ContentSource` trait + in-process `PeerNetwork`
+      simulation, with a doc comment noting "a real `libp2p`-backed transport
+      implements the same contract" — no `libp2p` crate dependency exists yet
+      (absent from `Cargo.toml`/`Cargo.lock`)
 - [x] Replace location-based asset URLs with content-addressed identifiers
       (`crates/helix-runtime/src/content.rs`: `AssetRegistry` maps a legacy
       asset URL → `ContentId`, so assets are thereafter addressed by hash,
@@ -81,7 +86,17 @@ tracks execution, not design decisions.
       `play`/`pause`/`seek`) — defined in `wit/helix.wit`, generated bindings,
       and wired through `stub` + wasmtime `Host` with capability (resolution-cap) checks
 - [ ] Integrate hardware decode paths (VA-API / Vulkan video)
-- [ ] Implement DASH adaptive streaming client
+      — PARTIAL: `crates/helix-runtime/src/media_decode.rs` defines a
+      `DecoderBackend` trait with a working `Software` backend, but
+      `HardwareBackend::decode_segment` just estimates frame counts the same
+      way software does (no VA-API/Vulkan calls), and
+      `platform::vulkan_video_available()` is hardcoded to `false` pending
+      real wiring
+- [x] Implement DASH adaptive streaming client
+      (`crates/helix-runtime/src/dash.rs`: real MPD XML parsing (`parse_mpd`),
+      `SegmentTemplate`/`SegmentList`/`BaseURL` handling, ABR selection
+      (`select_representation`, `AbrPolicy::MaximizeQuality/Conservative`),
+      and `DashClient` segment planning, covered by unit tests)
 - [ ] Benchmark 720p video player against the ≤200MB memory target (§7.1)
 
 ### Cross-platform builds (macOS, Windows)
@@ -148,6 +163,11 @@ tracks execution, not design decisions.
 ### Legacy JS compatibility layer optimization
 - [ ] Profile QuickJS fallback path memory/perf overhead
 - [ ] Optimize JS → WIT bridge (custom, currently "to be built" per §4.2)
+      — PARTIAL: `crates/helix-runtime/src/js_bridge.rs` now also installs
+      `install_storage_bridge` and `install_network_bridge` alongside the
+      existing DOM bridge, but it's still a straightforward global-function
+      bridge to `RuntimeStub` — no batching/serialization efficiency work
+      has been done yet
 - [ ] Evaluate `boa` (pure-Rust JS engine) as an alternative/replacement path
 - [x] Sandbox `eval`/dynamic-code-generation cases per Q1's proposed resolution
       (`crates/helix-runtime/src/js.rs`: `Interpreter::eval_with_timeout` runs
@@ -223,26 +243,54 @@ work outrun its test coverage.
 
 ### Unit test coverage per crate
 - [ ] `helix-runtime` `html.rs`: malformed HTML, encoding detection, edge-case parsing
+      — PARTIAL: covers nested elements, unclosed-tag recovery, attributes,
+      doctype/comments, and void/self-closing elements; no encoding-detection
+      tests yet
 - [ ] `helix-runtime` `css.rs`: selector matching, cascade/specificity, malformed CSS
+      — PARTIAL: covers class/id/attribute/descendant selector matching and
+      malformed-CSS degradation (unbalanced braces, bad declarations); no
+      dedicated cascade/specificity-ordering test yet
 - [ ] `helix-runtime` `layout.rs` (`taffy`): flex/grid edge cases, intrinsic sizing
+       — PARTIAL: covers side-by-side flex children, percentage-width
+       resolution against the viewport, cascade rule precedence, and grid
+       row-stacking; no dedicated intrinsic-sizing test yet
+       NOTE (2026-07-14): `percentage_width_resolves_against_viewport` is
+       currently RED — `div.half { width: 50% }` resolves to `0.0` instead of
+       400.0 because percentages do not resolve through the `html > body`
+       chain (intermediate `auto` widths stay indefinite). This is a
+       pre-existing layout-engine bug, not introduced by recent changes; fix
+       belongs with the `taffy` integration, not the test list.
 - [ ] `helix-runtime` `text.rs`: shaping/line-breaking (bidi, ligatures, CJK)
 - [ ] `helix-runtime` `raster.rs`: image/SVG decode error paths, malformed assets
 - [ ] `helix-runtime` `display_list.rs` + `gpu.rs`: command-buffer generation correctness
-- [ ] `helix-runtime` `js.rs`: QuickJS eval correctness, timeout/interrupt behavior
+- [x] `helix-runtime` `js.rs`: QuickJS eval correctness, timeout/interrupt behavior
+      (arithmetic/string/undefined/syntax-error/global-isolation cases, plus
+      `eval_with_timeout_aborts_infinite_loop` and
+      `sandboxed_interpreter_has_no_bridged_host_functions` regression tests
+      for the interrupt-driven abort path)
 - [ ] `helix-runtime` `js_bridge.rs`: stub delegation correctness for each WIT call
 - [ ] `helix-runtime` `content.rs`: `AssetRegistry` + `ContentStore` integrity-check paths
-- [ ] `helix-migrate` `tree_sitter_discovery.rs`: AST parsing across JS/TS/TSX grammars
+- [x] `helix-migrate` `tree_sitter_discovery.rs`: AST parsing across JS/TS/TSX grammars
+      (`src/tree_sitter_discovery.rs` now has a `#[cfg(test)]` suite covering
+      default/named/namespace/default imports, function/class/const/default
+      exports, re-exports, top-level functions, embedded JSX in TSX, and
+      comment/string resilience, plus parity with the tokenizer `discover`)
 - [ ] `helix-migrate` `js_transform.rs`: rule-by-rule transform correctness
 - [ ] `helix-migrate` `transpile.rs`: static-site `DomOp` + generated WIT world correctness
 
 ### Integration test coverage
-- [ ] End-to-end HTML → CSS → layout → display-list pipeline golden-file fixtures
-- [ ] WIT interface conformance suite (`network`/`storage`/`dom`/`media`) run against
+- [x] End-to-end HTML → CSS → layout → display-list pipeline golden-file fixtures
+      (`tests/render_pipeline.rs` drives the same stages as the GPU presenter but
+      paints into an in-memory RGBA buffer and asserts on concrete pixel output)
+- [x] WIT interface conformance suite (`network`/`storage`/`dom`/`media`) run against
       both the wasmtime host and the QuickJS bridge, not just the runtime stub
-- [ ] Capability broker integration tests: grant/revoke/delegate/trap across
-      multi-module scenarios
-- [ ] `wasmtime` module lifecycle tests (load/instantiate/teardown) under adversarial
-      or malformed WASM module inputs
+      (`tests/conformance.rs` = stub path; `tests/bridge_conformance.rs` = QuickJS
+      JS→WIT bridge path; `tests/wit_boundary.rs` = both stub and wasmtime `Host`
+      under adversarial input)
+- [x] Capability broker integration tests: grant/revoke/delegate/trap across
+      multi-module scenarios (`tests/capability_broker.rs`)
+- [x] `wasmtime` module lifecycle tests (load/instantiate/teardown) under adversarial
+      or malformed WASM module inputs (`tests/wasm_lifecycle.rs`)
 
 ### Migration pipeline validation coverage
 - [ ] Extend `proptest`/fuzz equivalence suite (Stage S3) to cover P2–P4 patterns as
@@ -252,19 +300,40 @@ work outrun its test coverage.
       G2 measurement item above)
 
 ### Cross-platform / CI coverage
-- [ ] Add `clippy` + `rustfmt` gates to CI (none exist yet, per repo notes)
-- [ ] Add code coverage reporting (`cargo-llvm-cov` or `tarpaulin`) to CI and publish
+- [x] Add `clippy` + `rustfmt` gates to CI
+      (`.github/workflows/ci.yml`: `lint` job runs
+      `cargo clippy --all-targets -- -D warnings` and `cargo fmt --all -- --check`.
+      NOTE: as of 2026-07-14 the `lint` gate was actually red — pre-existing
+      clippy lints (collapsible-if, redundant closures, needless casts/refs,
+      explicit lifetimes, `sort_by_key`) and `cargo fmt --check` drift across
+      `helix-runtime`/`helix-migrate`. These were fixed; the gate now passes.)
+- [x] Add code coverage reporting (`cargo-llvm-cov` or `tarpaulin`) to CI and publish
       the coverage trend
+      (`.github/workflows/ci.yml`: new `coverage` job runs `cargo llvm-cov
+      --workspace --lcov`, uploads `lcov.info` as an artifact, and uploads to
+      Codecov when a `CODECOV_TOKEN` secret is present)
 - [ ] Stand up a GPU-capable CI runner (self-hosted or `swiftshader`) to unblock the
       wgpu rasterization / backend-selection validation items in Phase 0/1
-- [ ] Add performance regression benchmarks (layout ops/sec, memory footprint) gated
+- [x] Add performance regression benchmarks (layout ops/sec, memory footprint) gated
       against the §7 performance targets
+      (`crates/helix-runtime/benches/layout_bench.rs`: criterion harness tracking
+      layout throughput for a 1000-element tree; `crates/helix-runtime/tests/
+      perf_regression.rs` enforces the §7.3 ≥60fps/1000-element budget as a
+      failing CI test)
 
 ### Security test coverage
-- [ ] Fuzz the capability broker's grant/revoke/delegate state machine
-- [ ] Fuzz WIT interface boundary parsing (`network`/`storage`/`dom`/`media`) against
-      malformed guest input
-- [ ] Add regression tests locking in sandboxed `eval` timeout/abort behavior (Q1)
+- [x] Fuzz the capability broker's grant/revoke/delegate state machine
+      (`tests/capability_fuzz.rs`: deterministic pseudo-random op-sequence driver
+      with a maintained model checked against real `check`/`revoke`/`delegate`)
+- [x] Fuzz WIT interface boundary parsing (`network`/`storage`/`dom`/`media`) against
+      malformed guest input (`tests/wit_boundary.rs`: adversarial bytes/long
+      strings/empty keys/oversized payloads against both `RuntimeStub` and the
+      wasmtime `Host`; asserts the boundary never panics)
+- [x] Add regression tests locking in sandboxed `eval` timeout/abort behavior (Q1)
+      (`crates/helix-runtime/src/js.rs`: `eval_with_timeout_aborts_infinite_loop`
+      asserts an infinite loop is aborted by the interrupt handler and the
+      interpreter recovers afterward; `sandboxed_interpreter_has_no_bridged_host_functions`
+      asserts a bare interpreter exposes no `__helix_*` host hooks)
 
 ## Open Questions to Resolve (Section 10)
 
