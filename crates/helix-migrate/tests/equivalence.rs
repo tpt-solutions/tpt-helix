@@ -11,7 +11,8 @@
 //! trees (fuzzing), not just hand-written fixtures.
 
 use helix_migrate::transpile::{
-    DomOp, collect_text, parse_html, transpile_form_app, transpile_static_site,
+    DomOp, collect_text, parse_html, transpile_data_viz, transpile_form_app,
+    transpile_media_player, transpile_static_site,
 };
 use proptest::prelude::*;
 
@@ -156,7 +157,9 @@ fn form_doc(fields: usize, rows: usize) -> String {
     let mut s = String::from("<form onsubmit=\"submit()\">");
     for i in 0..fields {
         let t = types[i % types.len()];
-        s.push_str(&format!("<input type=\"{t}\" name=\"f{i}\" onchange=\"chg()\" />"));
+        s.push_str(&format!(
+            "<input type=\"{t}\" name=\"f{i}\" onchange=\"chg()\" />"
+        ));
     }
     s.push_str("<button type=\"submit\">Add</button></form><table>");
     for i in 0..rows {
@@ -217,5 +220,142 @@ proptest! {
         prop_assert!(site.crud.forms[0].has_submit, "form must have a submit affordance");
         prop_assert_eq!(site.crud.tables.len(), 1, "exactly one table expected");
         prop_assert_eq!(site.crud.tables[0].row_count, rows, "row count mismatch");
+    }
+}
+
+/// A P3 data-visualization document: a heading plus a `<canvas>` chart mount
+/// with resolved pixel `width`/`height` and `series` `data-*` series bindings.
+fn chart_doc(series: usize) -> String {
+    let mut s = String::from("<h1>Dashboard</h1><canvas id=\"chart\" width=\"800\" height=\"600\"");
+    for i in 0..series {
+        s.push_str(&format!(" data-series-{i}=\"v{i}\""));
+    }
+    s.push_str("></canvas>");
+    s
+}
+
+proptest! {
+    /// P3 transpilation preserves the heading text of the source document
+    /// exactly — the Stage S3 content-fidelity invariant for charts.
+    #[test]
+    fn data_viz_text_is_preserved(series in 0..4usize) {
+        let html = chart_doc(series);
+        let site = transpile_data_viz(&html);
+
+        let expected = collect_text(&parse_html(&html));
+        let got: Vec<String> = site
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DomOp::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        prop_assert_eq!(expected, got, "transpiled chart text diverges from source");
+    }
+
+    /// The P3 transpiled guest is structurally sound (every variable created
+    /// before use) and its extracted [`DataVizModel`] matches the source
+    /// (one canvas, resolved dimensions, series count).
+    #[test]
+    fn data_viz_chart_model_is_consistent(series in 0..4usize) {
+        let html = chart_doc(series);
+        let site = transpile_data_viz(&html);
+
+        let mut created: std::collections::HashSet<String> = Default::default();
+        for op in &site.ops {
+            match op {
+                DomOp::Create { var, .. } => {
+                    prop_assert!(created.insert(var.clone()), "duplicate var {var}");
+                }
+                DomOp::Append { parent, child } => {
+                    prop_assert!(created.contains(parent), "append to undefined {parent}");
+                    prop_assert!(created.contains(child), "append of undefined {child}");
+                }
+                _ => {}
+            }
+        }
+
+        prop_assert_eq!(site.dataviz.charts.len(), 1, "exactly one chart expected");
+        prop_assert_eq!(site.dataviz.charts[0].tag.clone(), "canvas".to_string());
+        prop_assert_eq!(site.dataviz.charts[0].width, Some(800));
+        prop_assert_eq!(site.dataviz.charts[0].height, Some(600));
+        prop_assert_eq!(site.dataviz.charts[0].series.len(), series, "series count mismatch");
+    }
+}
+
+/// A P4 media-player document: a heading plus a `<video>` with a primary `src`
+/// and `controls`, followed by `sources` `<source>` alternate streams.
+fn media_doc(sources: usize) -> String {
+    let mut s = String::from("<h1>Player</h1><video src=\"main.mp4\" controls>");
+    for i in 0..sources {
+        s.push_str(&format!(
+            "<source src=\"s{i}.mp4\" type=\"video/mp4\"></source>"
+        ));
+    }
+    s.push_str("</video>");
+    s
+}
+
+proptest! {
+    /// P4 transpilation preserves the heading text of the source document
+    /// exactly — the Stage S3 content-fidelity invariant for media players.
+    #[test]
+    fn media_player_text_is_preserved(sources in 0..4usize) {
+        let html = media_doc(sources);
+        let site = transpile_media_player(&html);
+
+        let expected = collect_text(&parse_html(&html));
+        let got: Vec<String> = site
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DomOp::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        prop_assert_eq!(expected, got, "transpiled media text diverges from source");
+    }
+
+    /// The P4 transpiled guest is structurally sound (every variable created
+    /// before use) and its extracted [`MediaModel`] matches the source
+    /// (one video, resolved src, controls requested, source count).
+    #[test]
+    fn media_player_model_is_consistent(sources in 0..4usize) {
+        let html = media_doc(sources);
+        let site = transpile_media_player(&html);
+
+        let mut created: std::collections::HashSet<String> = Default::default();
+        for op in &site.ops {
+            match op {
+                DomOp::Create { var, .. } => {
+                    prop_assert!(created.insert(var.clone()), "duplicate var {var}");
+                }
+                DomOp::Append { parent, child } => {
+                    prop_assert!(created.contains(parent), "append to undefined {parent}");
+                    prop_assert!(created.contains(child), "append of undefined {child}");
+                }
+                _ => {}
+            }
+        }
+
+        prop_assert_eq!(site.media.players.len(), 1, "exactly one player expected");
+        prop_assert_eq!(site.media.players[0].kind.clone(), "video".to_string());
+        prop_assert_eq!(site.media.players[0].src.as_deref(), Some("main.mp4"));
+        prop_assert!(site.media.players[0].has_controls, "player must request controls");
+        prop_assert_eq!(
+            site.media.players[0].sources.len(),
+            sources,
+            "source count mismatch"
+        );
+        // Source children are folded into the player model, not emitted as
+        // separate top-level elements.
+        let has_source_elem = site
+            .ops
+            .iter()
+            .any(|o| matches!(o, DomOp::Create { tag, .. } if tag == "source"));
+        prop_assert!(!has_source_elem, "source must not be a top-level element");
     }
 }

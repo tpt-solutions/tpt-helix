@@ -127,7 +127,11 @@ impl CrudModel {
     pub fn field_bindings(&self) -> Vec<(String, String)> {
         self.forms
             .iter()
-            .flat_map(|f| f.fields.iter().map(|field| (f.var.clone(), field.var.clone())))
+            .flat_map(|f| {
+                f.fields
+                    .iter()
+                    .map(|field| (f.var.clone(), field.var.clone()))
+            })
             .collect()
     }
 
@@ -472,34 +476,13 @@ fn rust_escape(s: &str) -> String {
 /// generated guest wires interactivity explicitly.
 fn handler_attr(name: &str) -> Option<fn(String, u64) -> DomOp> {
     match name.to_ascii_lowercase().as_str() {
-        "onclick" => Some(|v, h| DomOp::OnClick {
-            var: v,
-            handler: h,
-        }),
-        "onsubmit" => Some(|v, h| DomOp::OnSubmit {
-            var: v,
-            handler: h,
-        }),
-        "onchange" => Some(|v, h| DomOp::OnChange {
-            var: v,
-            handler: h,
-        }),
-        "oninput" => Some(|v, h| DomOp::OnInput {
-            var: v,
-            handler: h,
-        }),
-        "onplay" => Some(|v, h| DomOp::OnPlay {
-            var: v,
-            handler: h,
-        }),
-        "onpause" => Some(|v, h| DomOp::OnPause {
-            var: v,
-            handler: h,
-        }),
-        "onended" => Some(|v, h| DomOp::OnEnded {
-            var: v,
-            handler: h,
-        }),
+        "onclick" => Some(|v, h| DomOp::OnClick { var: v, handler: h }),
+        "onsubmit" => Some(|v, h| DomOp::OnSubmit { var: v, handler: h }),
+        "onchange" => Some(|v, h| DomOp::OnChange { var: v, handler: h }),
+        "oninput" => Some(|v, h| DomOp::OnInput { var: v, handler: h }),
+        "onplay" => Some(|v, h| DomOp::OnPlay { var: v, handler: h }),
+        "onpause" => Some(|v, h| DomOp::OnPause { var: v, handler: h }),
+        "onended" => Some(|v, h| DomOp::OnEnded { var: v, handler: h }),
         _ => None,
     }
 }
@@ -563,10 +546,10 @@ impl Emitter {
                         });
                         this_table = Some(idx);
                     }
-                    if el.tag.eq_ignore_ascii_case("tr") {
-                        if let Some(t) = this_table {
-                            self.crud.tables[t].row_count += 1;
-                        }
+                    if el.tag.eq_ignore_ascii_case("tr")
+                        && let Some(t) = this_table
+                    {
+                        self.crud.tables[t].row_count += 1;
                     }
 
                     // P3 data-visualization: a `<canvas>`/`<svg>` chart mount
@@ -605,7 +588,8 @@ impl Emitter {
 
                     // P4 media player: a `<video>`/`<audio>` element with its
                     // primary `src`, UI/playback hints, and any `<source>` kids.
-                    if el.tag.eq_ignore_ascii_case("video") || el.tag.eq_ignore_ascii_case("audio") {
+                    if el.tag.eq_ignore_ascii_case("video") || el.tag.eq_ignore_ascii_case("audio")
+                    {
                         let src = el
                             .attrs
                             .iter()
@@ -619,10 +603,8 @@ impl Emitter {
                             .attrs
                             .iter()
                             .any(|(k, _)| k.eq_ignore_ascii_case("autoplay"));
-                        let loop_playback = el
-                            .attrs
-                            .iter()
-                            .any(|(k, _)| k.eq_ignore_ascii_case("loop"));
+                        let loop_playback =
+                            el.attrs.iter().any(|(k, _)| k.eq_ignore_ascii_case("loop"));
                         let sources = el
                             .children
                             .iter()
@@ -640,10 +622,7 @@ impl Emitter {
                                         .iter()
                                         .find(|(k, _)| k.eq_ignore_ascii_case("type"))
                                         .map(|(_, v)| v.clone());
-                                    s.map(|src| MediaSource {
-                                        media_type: t,
-                                        src,
-                                    })
+                                    s.map(|src| MediaSource { media_type: t, src })
                                 }
                                 _ => None,
                             })
@@ -659,7 +638,6 @@ impl Emitter {
                         });
                     }
 
-
                     // Attributes: handler attributes become handler ops; the rest
                     // are plain `set-attribute` calls. Field `name`/`type` are
                     // recorded for the CRUD data-binding model.
@@ -674,10 +652,9 @@ impl Emitter {
                             self.ops.push(make(var.clone(), h));
                             if el.tag.eq_ignore_ascii_case("form")
                                 && name.eq_ignore_ascii_case("onsubmit")
+                                && let Some(f) = this_form
                             {
-                                if let Some(f) = this_form {
-                                    self.crud.forms[f].has_submit = true;
-                                }
+                                self.crud.forms[f].has_submit = true;
                             }
                             continue;
                         }
@@ -694,23 +671,20 @@ impl Emitter {
                             value: value.clone(),
                         });
                     }
-                    if is_field {
-                        if let Some(f) = this_form {
-                            self.crud.forms[f].fields.push(FormField {
-                                var: var.clone(),
-                                input_type: field_type.unwrap_or_else(|| "text".to_string()),
-                                name: field_name,
-                            });
-                        }
+                    if is_field && let Some(f) = this_form {
+                        self.crud.forms[f].fields.push(FormField {
+                            var: var.clone(),
+                            input_type: field_type.unwrap_or_else(|| "text".to_string()),
+                            name: field_name,
+                        });
                     }
                     if el.tag.eq_ignore_ascii_case("button") {
                         // A submit button inside a form confers submit capability
                         // even when no explicit `onsubmit` handler is declared.
                         if let Some(f) = this_form {
-                            let is_submit = el
-                                .attrs
-                                .iter()
-                                .any(|(k, v)| k.eq_ignore_ascii_case("type") && v.eq_ignore_ascii_case("submit"));
+                            let is_submit = el.attrs.iter().any(|(k, v)| {
+                                k.eq_ignore_ascii_case("type") && v.eq_ignore_ascii_case("submit")
+                            });
                             if is_submit {
                                 self.crud.forms[f].has_submit = true;
                             }
@@ -751,12 +725,20 @@ impl Emitter {
                         }
                     }
                     // Element children.
-                    let child_elements: Vec<Node> = el
+                    let mut child_elements: Vec<Node> = el
                         .children
                         .iter()
                         .filter(|c| matches!(c, Node::Element(_)))
                         .cloned()
                         .collect();
+                    // `<source>` children of a media player are folded into the
+                    // player model (resolved `src`/`type`), not emitted as real
+                    // DOM elements — they are stream metadata, not content.
+                    if el.tag.eq_ignore_ascii_case("video") || el.tag.eq_ignore_ascii_case("audio")
+                    {
+                        child_elements
+                            .retain(|c| !matches!(c, Node::Element(e) if e.tag.eq_ignore_ascii_case("source")));
+                    }
                     self.emit(&child_elements, Some(&var), this_form, this_table);
                     if let Some(p) = parent {
                         self.ops.push(DomOp::Append {
@@ -1011,9 +993,10 @@ mod tests {
         assert_eq!(form.fields[1].input_type, "number");
 
         // The form must carry an `onsubmit` handler op (not a raw attribute).
-        let has_submit_handler = site.ops.iter().any(|o| {
-            matches!(o, DomOp::OnSubmit { var, .. } if var == &form.var)
-        });
+        let has_submit_handler = site
+            .ops
+            .iter()
+            .any(|o| matches!(o, DomOp::OnSubmit { var, .. } if var == &form.var));
         assert!(has_submit_handler, "form must emit a submit handler");
 
         // Field `name`/`type` must be present as attributes for data-binding.
@@ -1073,7 +1056,11 @@ mod tests {
         assert!(site.rust_source.contains("dom::on_submit("));
         assert!(site.rust_source.contains("dom::on_change("));
         // Handlers must not leak as raw attributes.
-        assert!(!site.rust_source.contains("set_attribute(el0, &\"onsubmit\""));
+        assert!(
+            !site
+                .rust_source
+                .contains("set_attribute(el0, &\"onsubmit\"")
+        );
     }
 
     #[test]
@@ -1089,8 +1076,14 @@ mod tests {
         assert_eq!(chart.width, Some(800));
         assert_eq!(chart.height, Some(600));
         assert_eq!(chart.series.len(), 2);
-        assert_eq!(chart.series[0], ("data-series-0".to_string(), "revenue".to_string()));
-        assert_eq!(chart.series[1], ("data-series-1".to_string(), "cost".to_string()));
+        assert_eq!(
+            chart.series[0],
+            ("data-series-0".to_string(), "revenue".to_string())
+        );
+        assert_eq!(
+            chart.series[1],
+            ("data-series-1".to_string(), "cost".to_string())
+        );
 
         // The chart's dimensions/series must surface as attributes on the
         // created element (so the guest can reconstruct it).
@@ -1107,7 +1100,11 @@ mod tests {
         assert!(attrs.iter().any(|(k, v)| k == "id" && v == "chart"));
         assert!(attrs.iter().any(|(k, v)| k == "width" && v == "800"));
         assert!(attrs.iter().any(|(k, v)| k == "height" && v == "600"));
-        assert!(attrs.iter().any(|(k, v)| k == "data-series-0" && v == "revenue"));
+        assert!(
+            attrs
+                .iter()
+                .any(|(k, v)| k == "data-series-0" && v == "revenue")
+        );
 
         // Heading text preserved exactly.
         let text: Vec<String> = site

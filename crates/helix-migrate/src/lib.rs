@@ -13,9 +13,36 @@
 //!   AST fidelity.
 
 pub mod coverage;
+pub mod deploy;
+pub mod eve;
 pub mod js_transform;
+pub mod optimize;
+pub mod spark;
 pub mod transpile;
 pub mod tree_sitter_discovery;
+pub mod type_infer;
+
+/// Run the full Stage S1→S5 migration pipeline (TPT Eve orchestration → TPT
+/// Spark code generation) for one application and return the generated guest
+/// crate plus Eve's plan.
+///
+/// This is the top-level entry point that wires the planner ([`eve`]) to the
+/// generator ([`spark`]): Eve classifies the workload and runs discovery,
+/// transpile, validation, optimization, and deploy-config synthesis, then
+/// Spark folds those artifacts into a componentizable Helix guest crate.
+pub fn migrate(req: &eve::PlanRequest) -> (eve::OrchestratedMigration, spark::GuestCrate) {
+    let migration = eve::orchestrate(req);
+    let guest_crate = spark::generate_guest_crate(
+        &req.app_name,
+        &req.version,
+        &migration.site,
+        &migration.suggestions,
+        &migration.feature_flags,
+        req.js.as_deref(),
+        &req.targets,
+    );
+    (migration, guest_crate)
+}
 
 pub use tree_sitter_discovery::{SourceLang, discover_ast, discover_js, discover_ts, discover_tsx};
 

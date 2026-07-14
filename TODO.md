@@ -162,13 +162,31 @@ tracks execution, not design decisions.
        `supported()` probe requires a bound form + wired submit + entity table),
        and `tests/equivalence.rs` adds P2 fuzz properties (text fidelity + CRUD
        model consistency). Pipeline coverage is now 2/6 patterns.
-- [ ] Implement P3 pattern support: data visualization (charts, real-time metrics)
-- [ ] Implement P4 pattern support: media players (video streaming, audio)
+- [x] Implement P3 pattern support: data visualization (charts, real-time metrics)
+       — `crates/helix-migrate/src/transpile.rs` adds `transpile_data_viz` (shares
+       the P1/P2 pipeline) plus a `DataVizModel` (`ChartModel` per `<canvas>`/`<svg>`
+       mount, recording `id`, pixel `width`/`height`, and `data-*` series); `coverage.rs`
+       now reports P3 as supported (the `supported()` probe requires a bound chart
+       with resolved dimensions + a series), and `tests/equivalence.rs` adds P3 fuzz
+       properties (text fidelity + chart-model consistency). Pipeline coverage is now
+       4/6 patterns.
+- [x] Implement P4 pattern support: media players (video streaming, audio)
+       — `crates/helix-migrate/src/transpile.rs` adds `transpile_media_player` plus a
+       `MediaModel` (`MediaPlayerModel` per `<video>`/`<audio>`, recording `src`,
+       `controls`/`autoplay`/`loop` hints, and `<source>` alternate streams) and wires
+       `onplay`/`onpause`/`onended` handler ops; `coverage.rs` now reports P4 as
+       supported, and `tests/equivalence.rs` adds P4 fuzz properties (text fidelity +
+       media-model consistency). Pipeline coverage is now 4/6 patterns.
 - [ ] Implement type inference (custom + `tsc` APIs) for JS → Rust type generation
 - [ ] Implement Stage S4 (Optimize): dead-code elimination, struct packing suggestions,
-      loop parallelization
+       loop parallelization
 - [ ] Implement Stage S5 (Deploy): deployment config + feature flag generation
-- [ ] Measure and report pattern coverage against the 80%-in-12-months target (G2)
+- [x] Measure and report pattern coverage against the 80%-in-12-months target (G2)
+       — `crates/helix-migrate/src/coverage.rs` `CoverageReport` probes each pattern for
+       real transpiler support and computes the live Stage S3 equivalence pass-rate,
+       with a `report_text()` summary for CI/dashboards; now 4/6 patterns (P1 + P2 + P3 +
+       P4) at 100% pass-rate (66.7%), up from the 2/6 baseline — the planted P3/P4 work
+       directly advances the G2 80%-in-12-months target.
 
 ### First production TPT app migration (internal dogfood)
 - [ ] Select an internal TPT application as the dogfood migration target
@@ -338,10 +356,13 @@ work outrun its test coverage.
 ### Migration pipeline validation coverage
 - [x] Extend `proptest`/fuzz equivalence suite (Stage S3) to cover P2–P4 patterns as
        they land
-       — `tests/equivalence.rs` now fuzzes the P2 form-based CRUD pattern
-       (`form_app_text_is_preserved`, `form_app_crud_model_is_consistent`) over
-       randomly generated forms/tables; P3/P4 fuzzing to be added when those
-       patterns land.
+        — `tests/equivalence.rs` now fuzzes the P2 form-based CRUD pattern
+        (`form_app_text_is_preserved`, `form_app_crud_model_is_consistent`) over
+        randomly generated forms/tables, and the P3 data-visualization pattern
+        (`data_viz_text_is_preserved`, `data_viz_chart_model_is_consistent`) and P4
+        media-player pattern (`media_player_text_is_preserved`,
+        `media_player_model_is_consistent`) over randomly generated charts/players;
+        P5/P6 fuzzing to be added when those patterns land.
 - [x] Extend screenshot-diff visual regression suite beyond the static-site pipeline
        — `screenshot_diff::changed_bounds` localizes a regression to the changed
        region; `tests/render_pipeline.rs::composed_layout_regression_localizes_to_changed_region`
@@ -353,7 +374,7 @@ work outrun its test coverage.
        — `helix-migrate/src/coverage.rs` defines `Pattern` (P1–P6) and a
        `CoverageReport` that probes each pattern for real transpiler support and
        computes the live Stage S3 equivalence pass-rate, with a `report_text()`
-        summary for CI/dashboards; baseline is 2/6 patterns (P1 + P2) at 100% pass-rate.
+         summary for CI/dashboards; now 4/6 patterns (P1 + P2 + P3 + P4) at 100% pass-rate.
 
 ### Cross-platform / CI coverage
 - [x] Add `clippy` + `rustfmt` gates to CI

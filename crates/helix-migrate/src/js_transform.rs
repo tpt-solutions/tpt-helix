@@ -94,6 +94,7 @@ fn grammar(lang: SourceLang) -> Language {
         SourceLang::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
         SourceLang::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         SourceLang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        SourceLang::Auto => tree_sitter_javascript::LANGUAGE.into(),
     }
 }
 

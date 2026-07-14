@@ -2,6 +2,7 @@
 name = "appfront"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # `window` pulls in `eframe` (winit + wgpu/glow) to open a real native window.
 # Leaving it off keeps the bridge + layout logic headless and cheap to build/test.

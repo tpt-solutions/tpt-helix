@@ -64,7 +64,8 @@ impl Pattern {
             Pattern::P1StaticSite => {
                 r#"<html><head><title>Docs</title></head><body><h1>Hello</h1><p>World</p></body></html>"#
             }
-            Pattern::P2FormCrud => r#"
+            Pattern::P2FormCrud => {
+                r#"
                 <form onsubmit="add()">
                     <label>Name</label>
                     <input type="text" name="name" />
@@ -74,8 +75,11 @@ impl Pattern {
                 <table>
                     <tr><td>Alice</td></tr>
                     <tr><td>Bob</td></tr>
-                </table>"#,
-            Pattern::P3DataViz => r#"<h1>Metrics</h1><canvas id="chart" width="800" height="600" data-series-0="revenue"></canvas>"#,
+                </table>"#
+            }
+            Pattern::P3DataViz => {
+                r#"<h1>Metrics</h1><canvas id="chart" width="800" height="600" data-series-0="revenue"></canvas>"#
+            }
             Pattern::P4MediaPlayer => r#"<h1>Player</h1><video src="movie.mp4" controls></video>"#,
             Pattern::P5Realtime => "<div id=\"board\"></div>",
             Pattern::P6ComplexSpa => "<div id=\"app\"></div>",
@@ -101,10 +105,10 @@ impl Pattern {
                             created.insert(var.clone());
                         }
                         crate::transpile::DomOp::Text { .. } => text_runs += 1,
-                        crate::transpile::DomOp::Append { parent, child } => {
-                            if !created.contains(parent) || !created.contains(child) {
-                                ok = false;
-                            }
+                        crate::transpile::DomOp::Append { parent, child }
+                            if (!created.contains(parent) || !created.contains(child)) =>
+                        {
+                            ok = false;
                         }
                         _ => {}
                     }
@@ -127,10 +131,10 @@ impl Pattern {
                             created.insert(var.clone());
                         }
                         DomOp::Text { .. } => text_runs += 1,
-                        DomOp::Append { parent, child } => {
-                            if !created.contains(parent) || !created.contains(child) {
-                                ok = false;
-                            }
+                        DomOp::Append { parent, child }
+                            if (!created.contains(parent) || !created.contains(child)) =>
+                        {
+                            ok = false;
                         }
                         _ => {}
                     }
@@ -140,8 +144,7 @@ impl Pattern {
                     && !form[0].fields.is_empty()
                     && form[0].has_submit
                     && form[0].fields.iter().all(|f| f.name.is_some());
-                let has_table = site.crud.tables.len() == 1
-                    && site.crud.tables[0].row_count >= 1;
+                let has_table = site.crud.tables.len() == 1 && site.crud.tables[0].row_count >= 1;
                 let has_handler = site
                     .ops
                     .iter()
@@ -162,10 +165,10 @@ impl Pattern {
                             created.insert(var.clone());
                         }
                         DomOp::Text { .. } => text_runs += 1,
-                        DomOp::Append { parent, child } => {
-                            if !created.contains(parent) || !created.contains(child) {
-                                ok = false;
-                            }
+                        DomOp::Append { parent, child }
+                            if (!created.contains(parent) || !created.contains(child)) =>
+                        {
+                            ok = false;
                         }
                         _ => {}
                     }
@@ -192,10 +195,10 @@ impl Pattern {
                             created.insert(var.clone());
                         }
                         DomOp::Text { .. } => text_runs += 1,
-                        DomOp::Append { parent, child } => {
-                            if !created.contains(parent) || !created.contains(child) {
-                                ok = false;
-                            }
+                        DomOp::Append { parent, child }
+                            if (!created.contains(parent) || !created.contains(child)) =>
+                        {
+                            ok = false;
                         }
                         _ => {}
                     }
@@ -266,7 +269,11 @@ impl CoverageReport {
             self.supported_ratio() * 100.0
         );
         for &p in Pattern::ALL {
-            let mark = if self.supported.contains(&p) { "✓" } else { "✗" };
+            let mark = if self.supported.contains(&p) {
+                "✓"
+            } else {
+                "✗"
+            };
             let _ = writeln!(s, "    [{}] {}", mark, p.label());
         }
         let _ = writeln!(
@@ -285,22 +292,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn p1_and_p2_supported_p3_through_p6_are_not_yet() {
+    fn p1_through_p4_supported_p5_and_p6_are_not_yet() {
         let report = CoverageReport::collect();
         assert!(report.supported.contains(&Pattern::P1StaticSite));
         assert!(report.supported.contains(&Pattern::P2FormCrud));
-        assert!(!report.supported.contains(&Pattern::P3DataViz));
-        assert!(!report.supported.contains(&Pattern::P4MediaPlayer));
+        assert!(report.supported.contains(&Pattern::P3DataViz));
+        assert!(report.supported.contains(&Pattern::P4MediaPlayer));
         assert!(!report.supported.contains(&Pattern::P5Realtime));
         assert!(!report.supported.contains(&Pattern::P6ComplexSpa));
     }
 
     #[test]
-    fn initial_coverage_is_two_of_six_patterns() {
+    fn initial_coverage_is_four_of_six_patterns() {
         let report = CoverageReport::collect();
-        // Baseline: P1 static sites and P2 form-based CRUD are wired in.
-        assert_eq!(report.supported.len(), 2);
-        assert_eq!(report.supported_ratio(), 2.0 / 6.0);
+        // P1 static sites, P2 form-based CRUD, P3 data viz, P4 media players
+        // are wired in; P5 realtime and P6 complex SPA remain.
+        assert_eq!(report.supported.len(), 4);
+        assert_eq!(report.supported_ratio(), 4.0 / 6.0);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 name = "helix-runtime"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 [features]
 # Enables hardware decode backends (VA-API / Vulkan Video). Off by default so

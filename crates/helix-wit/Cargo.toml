@@ -2,6 +2,7 @@
 name = "helix-wit"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 publish = false
 description = "Generated WIT bindings for the Helix Runtime capability interfaces (host + guest)."
 

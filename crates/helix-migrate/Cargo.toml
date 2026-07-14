@@ -2,6 +2,7 @@
 name = "helix-migrate"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # Phase 1: AI migration agent v0.1. This crate is the Stage S1 (Discovery)
 # frontend of the migration pipeline (spec §6.1). It extracts a lightweight

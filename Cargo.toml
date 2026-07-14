@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+
 members = [
     "crates/helix-runtime",
     "crates/helix-wit",
@@ -18,6 +19,9 @@ default-members = [
     "crates/helix-wit",
     "crates/helix-migrate",
 ]
+
+[workspace.package]
+license = "MIT OR Apache-2.0"
 
 # Release build profile used for the packaged Linux x86_64 binary and CI
 # release runs. `lto = "thin"` keeps link time reasonable while still

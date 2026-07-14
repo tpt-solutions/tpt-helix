@@ -19,6 +19,9 @@ pub enum SourceLang {
     JavaScript,
     TypeScript,
     Tsx,
+    /// Auto-detect: try every grammar and merge the results (used by the
+    /// orchestration layer when the input lang is not pinned).
+    Auto,
 }
 
 fn language_for(lang: SourceLang) -> Language {
@@ -26,6 +29,7 @@ fn language_for(lang: SourceLang) -> Language {
         SourceLang::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
         SourceLang::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         SourceLang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        SourceLang::Auto => tree_sitter_javascript::LANGUAGE.into(),
     }
 }
 
@@ -43,6 +47,32 @@ fn strip_quotes(s: &str) -> &str {
 /// Falls back to an empty map if the grammar cannot parse `source` (tree-sitter
 /// recovers from syntax errors rather than failing, so this is rare).
 pub fn discover_ast(source: &str, lang: SourceLang) -> ApiSurfaceMap {
+    if let SourceLang::Auto = lang {
+        let mut merged = ApiSurfaceMap::default();
+        for l in [
+            SourceLang::JavaScript,
+            SourceLang::TypeScript,
+            SourceLang::Tsx,
+        ] {
+            let m = discover_ast(source, l);
+            for imp in m.imports {
+                if !merged.imports.contains(&imp) {
+                    merged.imports.push(imp);
+                }
+            }
+            for exp in m.exports {
+                if !merged.exports.contains(&exp) {
+                    merged.exports.push(exp);
+                }
+            }
+            for f in m.functions {
+                if !merged.functions.contains(&f) {
+                    merged.functions.push(f);
+                }
+            }
+        }
+        return merged;
+    }
     let mut parser = Parser::new();
     let language = language_for(lang);
     if parser.set_language(&language).is_err() {
