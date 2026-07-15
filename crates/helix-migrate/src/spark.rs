@@ -167,6 +167,8 @@ mod tests {
             crud: Default::default(),
             dataviz: Default::default(),
             media: Default::default(),
+            realtime: Default::default(),
+            spa: Default::default(),
         }
     }
 

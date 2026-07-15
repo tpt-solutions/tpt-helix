@@ -216,6 +216,63 @@ impl MediaModel {
     }
 }
 
+/// A collaborative container detected in a P5 real-time document (spec §6.2
+/// P5 — editors, whiteboards, chat). `data-realtime`/`data-collab` marks the
+/// mount, and `data-transport` names the sync transport (defaults to
+/// `websocket`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RealtimeContainer {
+    /// Variable the collaborative element is bound to.
+    pub var: String,
+    /// `id` attribute of the container (the collaboration mount point).
+    pub id: Option<String>,
+    /// Detected collaboration kind (`board` | `chat` | `cursor` | `doc` …).
+    pub kind: String,
+    /// Sync transport (`websocket` by default).
+    pub transport: String,
+}
+
+/// Real-time collaboration structure extracted from a P5 document.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RealtimeModel {
+    /// Collaborative containers detected in document order.
+    pub containers: Vec<RealtimeContainer>,
+}
+
+impl RealtimeModel {
+    /// Whether any real-time collaboration semantics were detected.
+    pub fn is_empty(&self) -> bool {
+        self.containers.is_empty()
+    }
+}
+
+/// A single route detected in a P6 complex-SPA document (spec §6.2 P6 — Gmail/
+/// Figma-class single-page apps). Routes come from `<a href>` links or
+/// `data-route` attributes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaRoute {
+    /// Route path (the `href` or `data-route` value).
+    pub path: String,
+    /// Element variable the route is attached to.
+    pub var: String,
+}
+
+/// SPA structure extracted from a P6 document.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SpaModel {
+    /// The SPA mount point (`id="app"` / `id="root"`).
+    pub root: Option<String>,
+    /// Routes discovered in document order.
+    pub routes: Vec<SpaRoute>,
+}
+
+impl SpaModel {
+    /// Whether any SPA shell / routing semantics were detected.
+    pub fn is_empty(&self) -> bool {
+        self.root.is_none() && self.routes.is_empty()
+    }
+}
+
 /// The full transpilation output for one document (static or form-based CRUD).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranspiledSite {
@@ -233,6 +290,12 @@ pub struct TranspiledSite {
     /// Media-player structure extracted from the document (P4; empty unless the
     /// document contains `<video>`/`<audio>` elements).
     pub media: MediaModel,
+    /// Real-time collaboration structure extracted from the document (P5; empty
+    /// unless the document contains `data-realtime`/`data-collab` containers).
+    pub realtime: RealtimeModel,
+    /// SPA shell / routing structure extracted from the document (P6; empty
+    /// unless the document contains an `#app`/`#root` mount with routes).
+    pub spa: SpaModel,
 }
 
 const VOID_TAGS: &[&str] = &[
@@ -494,6 +557,8 @@ struct Emitter {
     crud: CrudModel,
     dataviz: DataVizModel,
     media: MediaModel,
+    realtime: RealtimeModel,
+    spa: SpaModel,
 }
 
 impl Emitter {
@@ -636,6 +701,112 @@ impl Emitter {
                             loop_playback,
                             sources,
                         });
+                    }
+
+                    // P5 real-time collaboration: a container marked `data-realtime` /
+                    // `data-collab`, or an `id` hinting at a board/chat/cursor/doc.
+                    let is_realtime = el
+                        .attrs
+                        .iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("data-realtime") || k.eq_ignore_ascii_case("data-collab"));
+                    let id_val = el
+                        .attrs
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("id"))
+                        .map(|(_, v)| v.clone());
+                    let id_hint = id_val
+                        .as_deref()
+                        .map(|id| {
+                            let l = id.to_ascii_lowercase();
+                            l.contains("board")
+                                || l.contains("collab")
+                                || l.contains("chat")
+                                || l.contains("cursor")
+                                || l.contains("doc")
+                        })
+                        .unwrap_or(false);
+                    if is_realtime || id_hint {
+                        let transport = el
+                            .attrs
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case("data-transport"))
+                            .map(|(_, v)| v.clone())
+                            .unwrap_or_else(|| "websocket".to_string());
+                        let kind = el
+                            .attrs
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case("data-realtime"))
+                            .map(|(_, v)| v.clone())
+                            .or_else(|| {
+                                id_val
+                                    .as_deref()
+                                    .map(|id| id.to_ascii_lowercase())
+                                    .filter(|id| id.contains("board"))
+                                    .map(|_| "board".to_string())
+                                    .or_else(|| {
+                                        id_val
+                                            .as_deref()
+                                            .map(|id| id.to_ascii_lowercase())
+                                            .filter(|id| id.contains("chat"))
+                                            .map(|_| "chat".to_string())
+                                            .or_else(|| {
+                                                id_val
+                                                    .as_deref()
+                                                    .map(|id| id.to_ascii_lowercase())
+                                                    .filter(|id| id.contains("cursor"))
+                                                    .map(|_| "cursor".to_string())
+                                                    .or_else(|| {
+                                                        id_val
+                                                            .as_deref()
+                                                            .map(|id| id.to_ascii_lowercase())
+                                                            .filter(|id| id.contains("doc"))
+                                                            .map(|_| "doc".to_string())
+                                                            .or_else(|| Some("board".to_string()))
+                                                    })
+                                            })
+                                    })
+                            })
+                            .unwrap_or_else(|| "board".to_string());
+                        self.realtime.containers.push(RealtimeContainer {
+                            var: var.clone(),
+                            id: id_val,
+                            kind,
+                            transport,
+                        });
+                    }
+
+                    // P6 complex SPA: an `#app`/`#root` mount point plus routes
+                    // declared via `<a href>` links or `data-route` attributes.
+                    if let Some(id) = el
+                        .attrs
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("id"))
+                        .map(|(_, v)| v.clone())
+                    {
+                        if id.eq_ignore_ascii_case("app") || id.eq_ignore_ascii_case("root") {
+                            self.spa.root = Some(id);
+                        }
+                    }
+                    if el.tag.eq_ignore_ascii_case("a") {
+                        if let Some(href) = el
+                            .attrs
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case("href"))
+                            .map(|(_, v)| v.clone())
+                        {
+                            self.spa.routes.push(SpaRoute {
+                                path: href,
+                                var: var.clone(),
+                            });
+                        }
+                    }
+                    for (k, v) in &el.attrs {
+                        if k.eq_ignore_ascii_case("data-route") {
+                            self.spa.routes.push(SpaRoute {
+                                path: v.clone(),
+                                var: var.clone(),
+                            });
+                        }
                     }
 
                     // Attributes: handler attributes become handler ops; the rest
@@ -833,12 +1004,16 @@ fn transpile_html(html: &str) -> TranspiledSite {
         crud: CrudModel::default(),
         dataviz: DataVizModel::default(),
         media: MediaModel::default(),
+        realtime: RealtimeModel::default(),
+        spa: SpaModel::default(),
     };
     emitter.emit(&nodes, None, None, None);
     let ops = emitter.ops.clone();
     let crud = emitter.crud.clone();
     let dataviz = emitter.dataviz.clone();
     let media = emitter.media.clone();
+    let realtime = emitter.realtime.clone();
+    let spa = emitter.spa.clone();
     let rust_source = emitter.generate_rust();
     let wit_world = r#"world helix-guest {
     import dom;
@@ -853,6 +1028,8 @@ fn transpile_html(html: &str) -> TranspiledSite {
         crud,
         dataviz,
         media,
+        realtime,
+        spa,
     }
 }
 
@@ -893,6 +1070,27 @@ pub fn transpile_data_viz(html: &str) -> TranspiledSite {
 /// handler wiring, so Stage S3 can assert media equivalence (player present,
 /// source resolved, controls requested, sources enumerated).
 pub fn transpile_media_player(html: &str) -> TranspiledSite {
+    transpile_html(html)
+}
+
+/// Transpile a P5 real-time collaboration document (editors, whiteboards, chat)
+/// into a Helix guest.
+///
+/// Extends the shared pipeline with [`RealtimeModel`] extraction: every
+/// `data-realtime`/`data-collab` container (or `id`-hinted board/chat/cursor/doc)
+/// is recorded with its `id`, collaboration `kind`, and sync `transport`, so
+/// Stage S3 can assert real-time equivalence (container present, transport set).
+pub fn transpile_realtime(html: &str) -> TranspiledSite {
+    transpile_html(html)
+}
+
+/// Transpile a P6 complex-SPA document (Gmail/Figma-class single-page apps)
+/// into a Helix guest.
+///
+/// Extends the shared pipeline with [`SpaModel`] extraction: the `#app`/`#root`
+/// mount point and every `<a href>` / `data-route` route, so Stage S3 can assert
+/// SPA equivalence (root mount present, routes enumerated).
+pub fn transpile_spa(html: &str) -> TranspiledSite {
     transpile_html(html)
 }
 
@@ -1205,5 +1403,81 @@ mod tests {
         // Playback handlers must not leak as raw attributes.
         assert!(!site.rust_source.contains("set_attribute(el0, &\"onplay\""));
         assert_eq!(site.media.players[0].kind, "audio");
+    }
+
+    #[test]
+    fn realtime_captures_collab_container_and_transport() {
+        let html = r#"<h1>Room</h1><div id="collab-board" data-realtime="board" data-transport="websocket"></div>"#;
+        let site = transpile_realtime(html);
+
+        assert_eq!(site.realtime.containers.len(), 1);
+        let c = &site.realtime.containers[0];
+        assert_eq!(c.id.as_deref(), Some("collab-board"));
+        assert_eq!(c.kind, "board");
+        assert_eq!(c.transport, "websocket");
+
+        // Heading text preserved.
+        let text: Vec<String> = site
+            .ops
+            .iter()
+            .filter_map(|o| match o {
+                DomOp::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(text.contains(&"Room".to_string()));
+
+        // Append soundness.
+        let mut created = std::collections::HashSet::new();
+        for op in &site.ops {
+            if let DomOp::Create { var, .. } = op {
+                created.insert(var.clone());
+            }
+            if let DomOp::Append { parent, child } = op {
+                assert!(created.contains(parent) && created.contains(child));
+            }
+        }
+    }
+
+    #[test]
+    fn realtime_detects_id_hint_without_explicit_marker() {
+        let html = r#"<div id="chat-panel"></div>"#;
+        let site = transpile_realtime(html);
+        assert_eq!(site.realtime.containers.len(), 1);
+        assert_eq!(site.realtime.containers[0].kind, "chat");
+        // Default transport when none declared.
+        assert_eq!(site.realtime.containers[0].transport, "websocket");
+    }
+
+    #[test]
+    fn spa_captures_root_mount_and_routes() {
+        let html = r#"<div id="app"></div><a href="/home">Home</a><a href="/about">About</a>"#;
+        let site = transpile_spa(html);
+
+        assert_eq!(site.spa.root.as_deref(), Some("app"));
+        assert_eq!(site.spa.routes.len(), 2);
+        let paths: Vec<&str> = site.spa.routes.iter().map(|r| r.path.as_str()).collect();
+        assert!(paths.contains(&"/home"));
+        assert!(paths.contains(&"/about"));
+
+        // Append soundness.
+        let mut created = std::collections::HashSet::new();
+        for op in &site.ops {
+            if let DomOp::Create { var, .. } = op {
+                created.insert(var.clone());
+            }
+            if let DomOp::Append { parent, child } = op {
+                assert!(created.contains(parent) && created.contains(child));
+            }
+        }
+    }
+
+    #[test]
+    fn spa_captures_data_route_attributes() {
+        let html = r#"<div id="root"></div><button data-route="/settings">Settings</button>"#;
+        let site = transpile_spa(html);
+        assert_eq!(site.spa.root.as_deref(), Some("root"));
+        assert_eq!(site.spa.routes.len(), 1);
+        assert_eq!(site.spa.routes[0].path, "/settings");
     }
 }

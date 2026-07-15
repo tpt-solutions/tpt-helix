@@ -15,7 +15,8 @@ use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use crate::transpile::{
-    DomOp, transpile_data_viz, transpile_form_app, transpile_media_player, transpile_static_site,
+    DomOp, transpile_data_viz, transpile_form_app, transpile_media_player, transpile_realtime,
+    transpile_spa, transpile_static_site,
 };
 
 /// A migration target pattern from spec §6.2 (Priority Order).
@@ -81,8 +82,8 @@ impl Pattern {
                 r#"<h1>Metrics</h1><canvas id="chart" width="800" height="600" data-series-0="revenue"></canvas>"#
             }
             Pattern::P4MediaPlayer => r#"<h1>Player</h1><video src="movie.mp4" controls></video>"#,
-            Pattern::P5Realtime => "<div id=\"board\"></div>",
-            Pattern::P6ComplexSpa => "<div id=\"app\"></div>",
+            Pattern::P5Realtime => r#"<h1>Room</h1><div id="board" data-realtime="board" data-transport="websocket"></div>"#,
+            Pattern::P6ComplexSpa => r#"<div id="app"></div><a href="/home">Home</a><a href="/about">About</a>"#,
         }
     }
 
@@ -210,8 +211,57 @@ impl Pattern {
                     && !site.media.players[0].loop_playback;
                 ok && text_runs > 0 && has_player
             }
-            // P5–P6 stages are not yet implemented (see TODO.md Phase 2).
-            _ => false,
+            // P5 real-time collaboration: requires exactly one collaborative
+            // container with a resolved `id` + non-empty sync `transport`, and
+            // structurally sound output.
+            Pattern::P5Realtime => {
+                let site = transpile_realtime(self.sample());
+                let mut created = HashSet::new();
+                let mut ok = true;
+                let mut text_runs = 0usize;
+                for op in &site.ops {
+                    match op {
+                        DomOp::Create { var, .. } => {
+                            created.insert(var.clone());
+                        }
+                        DomOp::Text { .. } => text_runs += 1,
+                        DomOp::Append { parent, child }
+                            if !created.contains(parent) || !created.contains(child) =>
+                        {
+                            ok = false;
+                        }
+                        _ => {}
+                    }
+                }
+                let has = site.realtime.containers.len() == 1
+                    && site.realtime.containers[0].id.is_some()
+                    && !site.realtime.containers[0].transport.is_empty();
+                ok && text_runs > 0 && has
+            }
+            // P6 complex SPA: requires a resolved `#app`/`#root` mount and at
+            // least one enumerated route, and structurally sound output.
+            Pattern::P6ComplexSpa => {
+                let site = transpile_spa(self.sample());
+                let mut created = HashSet::new();
+                let mut ok = true;
+                let mut text_runs = 0usize;
+                for op in &site.ops {
+                    match op {
+                        DomOp::Create { var, .. } => {
+                            created.insert(var.clone());
+                        }
+                        DomOp::Text { .. } => text_runs += 1,
+                        DomOp::Append { parent, child }
+                            if !created.contains(parent) || !created.contains(child) =>
+                        {
+                            ok = false;
+                        }
+                        _ => {}
+                    }
+                }
+                let has = site.spa.root.is_some() && !site.spa.routes.is_empty();
+                ok && text_runs > 0 && has
+            }
         }
     }
 }
@@ -292,23 +342,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn p1_through_p4_supported_p5_and_p6_are_not_yet() {
+    fn all_six_patterns_supported() {
         let report = CoverageReport::collect();
         assert!(report.supported.contains(&Pattern::P1StaticSite));
         assert!(report.supported.contains(&Pattern::P2FormCrud));
         assert!(report.supported.contains(&Pattern::P3DataViz));
         assert!(report.supported.contains(&Pattern::P4MediaPlayer));
-        assert!(!report.supported.contains(&Pattern::P5Realtime));
-        assert!(!report.supported.contains(&Pattern::P6ComplexSpa));
+        assert!(report.supported.contains(&Pattern::P5Realtime));
+        assert!(report.supported.contains(&Pattern::P6ComplexSpa));
     }
 
     #[test]
-    fn initial_coverage_is_four_of_six_patterns() {
+    fn coverage_is_six_of_six_patterns() {
         let report = CoverageReport::collect();
-        // P1 static sites, P2 form-based CRUD, P3 data viz, P4 media players
-        // are wired in; P5 realtime and P6 complex SPA remain.
-        assert_eq!(report.supported.len(), 4);
-        assert_eq!(report.supported_ratio(), 4.0 / 6.0);
+        // P1–P6 all wired in; the G2 80%-in-12-months target is met (100%).
+        assert_eq!(report.supported.len(), 6);
+        assert_eq!(report.supported_ratio(), 6.0 / 6.0);
     }
 
     #[test]

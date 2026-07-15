@@ -9,10 +9,87 @@
 //! `network`/`storage` bridging follows the same shape once JS apps need it.
 
 use rquickjs::{Ctx, Result as JsResult};
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 use crate::stub::RuntimeStub;
 use helix_wit::host::exports::helix::runtime::dom::ElementId as WitElementId;
 use helix_wit::host::exports::helix::runtime::network::Request as WitRequest;
+
+/// A pending DOM mutation recorded by the batched bridge before a `commit`.
+///
+/// Elements are referenced by a batch-local `handle` so a tree can be built up
+/// across several `__helix_batch_*` calls without each one round-tripping
+/// through [`RuntimeStub`] and allocating a real id immediately.
+#[derive(Debug, Clone)]
+enum DomBatchOp {
+    CreateElement { handle: u64, tag: String },
+    SetText { handle: u64, text: String },
+    SetAttribute { handle: u64, name: String, value: String },
+    AppendChild { parent: u64, child: u64 },
+    OnClick { handle: u64, handler: u64 },
+}
+
+/// Accumulated batched DOM ops plus the next free batch-local handle.
+#[derive(Default)]
+struct DomBatch {
+    next: u64,
+    ops: Vec<DomBatchOp>,
+}
+
+thread_local! {
+    /// Per-thread pending batched DOM ops (mirrors [`RuntimeStub`]'s
+    /// thread-local host state).
+    static DOM_BATCH: RefCell<DomBatch> = RefCell::new(DomBatch::default());
+}
+
+/// Applies the accumulated batched ops to [`RuntimeStub`] in one pass, then
+/// clears the buffer. Returns the number of ops applied.
+///
+/// Batch-local `handle`s are resolved to real `RuntimeStub` element ids as the
+/// `CreateElement` ops are replayed, so later ops in the batch that reference
+/// an earlier handle observe the correct real id.
+pub fn commit_dom_batch() -> usize {
+    let batch = DOM_BATCH.with(|b| std::mem::take(&mut *b.borrow_mut()));
+    let mut real_ids: HashMap<u64, u64> = HashMap::new();
+    let count = batch.ops.len();
+    for op in batch.ops {
+        match op {
+            DomBatchOp::CreateElement { handle, tag } => {
+                let real = RuntimeStub::create_element(tag).id;
+                real_ids.insert(handle, real);
+            }
+            DomBatchOp::SetText { handle, text } => {
+                if let Some(&id) = real_ids.get(&handle) {
+                    RuntimeStub::set_text(WitElementId { id }, text);
+                }
+            }
+            DomBatchOp::SetAttribute { handle, name, value } => {
+                if let Some(&id) = real_ids.get(&handle) {
+                    RuntimeStub::set_attribute(WitElementId { id }, name, value);
+                }
+            }
+            DomBatchOp::AppendChild { parent, child } => {
+                if let (Some(&p), Some(&c)) = (real_ids.get(&parent), real_ids.get(&child)) {
+                    RuntimeStub::append_child(WitElementId { id: p }, WitElementId { id: c });
+                }
+            }
+            DomBatchOp::OnClick { handle, handler } => {
+                if let Some(&id) = real_ids.get(&handle) {
+                    RuntimeStub::on_click(WitElementId { id }, handler);
+                }
+            }
+        }
+    }
+    count
+}
+
+/// Discard any accumulated batched ops without applying them.
+pub fn clear_dom_batch() {
+    DOM_BATCH.with(|b| {
+        *b.borrow_mut() = DomBatch::default();
+    });
+}
 
 /// Installs `__helix_*` global functions backed by [`RuntimeStub`] onto
 /// `ctx`. Names are prefixed and left ungrouped (no `document.*` object)
@@ -118,11 +195,89 @@ pub fn install_network_bridge(ctx: Ctx<'_>) -> JsResult<()> {
     Ok(())
 }
 
-/// Installs every bridge surface (dom + storage + network) at once.
+/// Installs the batched DOM bridge (`__helix_batch_*` + `__helix_batch_commit`).
+///
+/// Unlike the per-call DOM bridge, these helpers accumulate ops in a thread-local
+/// buffer and only touch [`RuntimeStub`] once, on `commit`. That collapses the
+/// per-op thread-local borrow + id-allocation overhead of building a large tree
+/// from legacy JS into a single replay pass (the "batching" efficiency work noted
+/// in TODO.md §"Legacy JS compatibility layer optimization").
+pub fn install_dom_batch_bridge(ctx: Ctx<'_>) -> JsResult<()> {
+    let globals = ctx.globals();
+
+    globals.set(
+        "__helix_batch_create_element",
+        rquickjs::Function::new(ctx.clone(), |tag: String| -> u64 {
+            DOM_BATCH.with(|b| {
+                let mut batch = b.borrow_mut();
+                let handle = batch.next;
+                batch.next += 1;
+                batch.ops.push(DomBatchOp::CreateElement { handle, tag });
+                handle
+            })
+        }),
+    )?;
+
+    globals.set(
+        "__helix_batch_set_text",
+        rquickjs::Function::new(ctx.clone(), |handle: u64, text: String| {
+            DOM_BATCH.with(|b| {
+                b.borrow_mut()
+                    .ops
+                    .push(DomBatchOp::SetText { handle, text });
+            });
+        }),
+    )?;
+
+    globals.set(
+        "__helix_batch_set_attribute",
+        rquickjs::Function::new(ctx.clone(), |handle: u64, name: String, value: String| {
+            DOM_BATCH.with(|b| {
+                b.borrow_mut()
+                    .ops
+                    .push(DomBatchOp::SetAttribute { handle, name, value });
+            });
+        }),
+    )?;
+
+    globals.set(
+        "__helix_batch_append_child",
+        rquickjs::Function::new(ctx.clone(), |parent: u64, child: u64| {
+            DOM_BATCH.with(|b| {
+                b.borrow_mut()
+                    .ops
+                    .push(DomBatchOp::AppendChild { parent, child });
+            });
+        }),
+    )?;
+
+    globals.set(
+        "__helix_batch_on_click",
+        rquickjs::Function::new(ctx.clone(), |handle: u64, handler: u64| {
+            DOM_BATCH.with(|b| {
+                b.borrow_mut()
+                    .ops
+                    .push(DomBatchOp::OnClick { handle, handler });
+            });
+        }),
+    )?;
+
+    globals.set(
+        "__helix_batch_commit",
+        rquickjs::Function::new(ctx.clone(), || -> u32 {
+            commit_dom_batch() as u32
+        }),
+    )?;
+
+    Ok(())
+}
+
+/// Installs every bridge surface (dom + storage + network + dom-batch) at once.
 pub fn install_all(ctx: Ctx<'_>) -> JsResult<()> {
     install_dom_bridge(ctx.clone())?;
     install_storage_bridge(ctx.clone())?;
     install_network_bridge(ctx.clone())?;
+    install_dom_batch_bridge(ctx.clone())?;
     Ok(())
 }
 
@@ -250,5 +405,82 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn js_batched_dom_bridge_builds_tree_on_commit() {
+        let _stub = RuntimeStub::new();
+        let interpreter = Interpreter::new().unwrap();
+        interpreter.with(install_dom_batch_bridge).unwrap();
+
+        // Build a parent/child tree entirely in the buffer, then commit once.
+        let parent_id: u64 = interpreter
+            .eval_to_string(
+                "var parent = __helix_batch_create_element('ul');
+                 var child = __helix_batch_create_element('li');
+                 __helix_batch_set_text(child, 'item');
+                 __helix_batch_set_attribute(child, 'class', 'row');
+                 __helix_batch_append_child(parent, child);
+                 __helix_batch_on_click(child, 7);
+                 var applied = __helix_batch_commit();
+                 parent;",
+            )
+            .unwrap()
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        let parent = RuntimeStub.element(WitElementId { id: parent_id }).unwrap();
+        assert_eq!(parent.tag, "ul");
+        assert_eq!(parent.children.len(), 1);
+        let child_id = parent.children[0];
+        let child = RuntimeStub.element(child_id).unwrap();
+        assert_eq!(child.tag, "li");
+        assert_eq!(child.text, "item");
+        assert_eq!(
+            child.attributes.get("class"),
+            Some(&"row".to_string())
+        );
+        assert_eq!(RuntimeStub.click_handler_ids(child_id), Some(vec![7]));
+    }
+
+    #[test]
+    fn js_batched_dom_bridge_commit_returns_op_count() {
+        let _stub = RuntimeStub::new();
+        let interpreter = Interpreter::new().unwrap();
+        interpreter.with(install_dom_batch_bridge).unwrap();
+
+        let applied: u32 = interpreter
+            .eval_to_string(
+                "var p = __helix_batch_create_element('div');
+                 __helix_batch_set_text(p, 'x');
+                 __helix_batch_set_attribute(p, 'id', 'a');
+                 __helix_batch_commit();",
+            )
+            .unwrap()
+            .unwrap()
+            .parse()
+            .unwrap();
+        // create + set_text + set_attribute = 3 ops replayed.
+        assert_eq!(applied, 3);
+    }
+
+    #[test]
+    fn js_batched_dom_bridge_is_noop_before_commit() {
+        let _stub = RuntimeStub::new();
+        let interpreter = Interpreter::new().unwrap();
+        interpreter.with(install_dom_batch_bridge).unwrap();
+
+        // Accumulate ops but never commit; the host tree must stay empty.
+        interpreter
+            .eval_to_string(
+                "var p = __helix_batch_create_element('div');
+                 __helix_batch_set_text(p, 'x');",
+            )
+            .unwrap();
+        let next = RuntimeStub::create_element("probe".to_string()).id;
+        // Only the probe element exists (id 0); batched ops did not apply.
+        assert_eq!(next, 0);
+        clear_dom_batch();
     }
 }

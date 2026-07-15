@@ -11,8 +11,8 @@
 //! trees (fuzzing), not just hand-written fixtures.
 
 use helix_migrate::transpile::{
-    DomOp, collect_text, parse_html, transpile_data_viz, transpile_form_app,
-    transpile_media_player, transpile_static_site,
+    DomOp, collect_text, parse_html, transpile_data_viz, transpile_form_app, transpile_media_player,
+    transpile_realtime, transpile_spa, transpile_static_site,
 };
 use proptest::prelude::*;
 
@@ -357,5 +357,130 @@ proptest! {
             .iter()
             .any(|o| matches!(o, DomOp::Create { tag, .. } if tag == "source"));
         prop_assert!(!has_source_elem, "source must not be a top-level element");
+    }
+}
+
+/// A P5 real-time collaboration document: a heading plus `routes` collaborative
+/// `<div id="collab-*" data-realtime="..." data-transport="websocket">` mounts.
+fn realtime_doc(routes: usize) -> String {
+    let mut s = String::from("<h1>Room</h1>");
+    for i in 0..routes {
+        s.push_str(&format!(
+            "<div id=\"collab-{i}\" data-realtime=\"board\" data-transport=\"websocket\"></div>"
+        ));
+    }
+    s
+}
+
+proptest! {
+    /// P5 transpilation preserves the heading text of the source document
+    /// exactly — the Stage S3 content-fidelity invariant for collaboration.
+    #[test]
+    fn realtime_text_is_preserved(routes in 1..4usize) {
+        let html = realtime_doc(routes);
+        let site = transpile_realtime(&html);
+
+        let expected = collect_text(&parse_html(&html));
+        let got: Vec<String> = site
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DomOp::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        prop_assert_eq!(expected, got, "transpiled realtime text diverges from source");
+    }
+
+    /// The P5 transpiled guest is structurally sound and its extracted
+    /// [`RealtimeModel`] matches the source (each mount present, transport set).
+    #[test]
+    fn realtime_model_is_consistent(routes in 1..4usize) {
+        let html = realtime_doc(routes);
+        let site = transpile_realtime(&html);
+
+        let mut created: std::collections::HashSet<String> = Default::default();
+        for op in &site.ops {
+            match op {
+                DomOp::Create { var, .. } => {
+                    prop_assert!(created.insert(var.clone()), "duplicate var {var}");
+                }
+                DomOp::Append { parent, child } => {
+                    prop_assert!(created.contains(parent), "append to undefined {parent}");
+                    prop_assert!(created.contains(child), "append of undefined {child}");
+                }
+                _ => {}
+            }
+        }
+
+        prop_assert_eq!(
+            site.realtime.containers.len(),
+            routes,
+            "container count mismatch"
+        );
+        prop_assert!(
+            site.realtime
+                .containers
+                .iter()
+                .all(|c| c.id.is_some() && !c.transport.is_empty()),
+            "every container must have an id + transport"
+        );
+    }
+}
+
+/// A P6 complex-SPA document: an `#app` mount plus `routes` `<a href>` links.
+fn spa_doc(routes: usize) -> String {
+    let mut s = String::from("<div id=\"app\"></div>");
+    for i in 0..routes {
+        s.push_str(&format!("<a href=\"/route{i}\">Link{i}</a>"));
+    }
+    s
+}
+
+proptest! {
+    /// P6 transpilation preserves the link text of the source document exactly
+    /// — the Stage S3 content-fidelity invariant for SPAs.
+    #[test]
+    fn spa_text_is_preserved(routes in 1..4usize) {
+        let html = spa_doc(routes);
+        let site = transpile_spa(&html);
+
+        let expected = collect_text(&parse_html(&html));
+        let got: Vec<String> = site
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DomOp::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        prop_assert_eq!(expected, got, "transpiled SPA text diverges from source");
+    }
+
+    /// The P6 transpiled guest is structurally sound and its extracted
+    /// [`SpaModel`] matches the source (root mount present, routes enumerated).
+    #[test]
+    fn spa_model_is_consistent(routes in 1..4usize) {
+        let html = spa_doc(routes);
+        let site = transpile_spa(&html);
+
+        let mut created: std::collections::HashSet<String> = Default::default();
+        for op in &site.ops {
+            match op {
+                DomOp::Create { var, .. } => {
+                    prop_assert!(created.insert(var.clone()), "duplicate var {var}");
+                }
+                DomOp::Append { parent, child } => {
+                    prop_assert!(created.contains(parent), "append to undefined {parent}");
+                    prop_assert!(created.contains(child), "append of undefined {child}");
+                }
+                _ => {}
+            }
+        }
+
+        prop_assert_eq!(site.spa.root.as_deref(), Some("app"), "root mount expected");
+        prop_assert_eq!(site.spa.routes.len(), routes, "route count mismatch");
     }
 }

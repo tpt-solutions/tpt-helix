@@ -21,8 +21,8 @@ use crate::deploy::{
 };
 use crate::optimize::{Suggestion, suggest_parallel_loops, suggest_struct_packing};
 use crate::transpile::{
-    DomOp, FormModel, TranspiledSite, transpile_data_viz, transpile_form_app,
-    transpile_media_player, transpile_static_site,
+    DomOp, FormModel, TranspiledSite, transpile_data_viz, transpile_form_app, transpile_media_player,
+    transpile_realtime, transpile_spa, transpile_static_site,
 };
 
 /// How strongly a pattern matches a given input during planning.
@@ -104,34 +104,40 @@ pub struct OrchestratedMigration {
 /// how completely.
 pub fn detect_pattern(html: &str) -> (Pattern, Fit) {
     let site = transpile_static_site(html);
+    // Highest-specificity patterns first (per spec priority P1..P6).
+    if !site.realtime.containers.is_empty() {
+        let strong = site
+            .realtime
+            .containers
+            .iter()
+            .any(|c| c.id.is_some() && !c.transport.is_empty());
+        return (Pattern::P5Realtime, if strong { Fit::Strong } else { Fit::Partial });
+    }
+    if site.spa.root.is_some() || !site.spa.routes.is_empty() {
+        let strong = site.spa.root.is_some() && !site.spa.routes.is_empty();
+        return (Pattern::P6ComplexSpa, if strong { Fit::Strong } else { Fit::Partial });
+    }
     if !site.media.players.is_empty() {
         let strong = site
             .media
             .players
             .iter()
             .any(|p| p.src.is_some() && p.has_controls);
-        return (
-            Pattern::P4MediaPlayer,
-            if strong { Fit::Strong } else { Fit::Partial },
-        );
+        return (Pattern::P4MediaPlayer, if strong { Fit::Strong } else { Fit::Partial });
     }
     if !site.dataviz.charts.is_empty() {
         let strong = site.dataviz.charts.iter().any(|c| {
             c.id.is_some() && c.width.is_some() && c.height.is_some() && !c.series.is_empty()
         });
-        return (
-            Pattern::P3DataViz,
-            if strong { Fit::Strong } else { Fit::Partial },
-        );
+        return (Pattern::P3DataViz, if strong { Fit::Strong } else { Fit::Partial });
     }
     if !site.crud.forms.is_empty() || !site.crud.tables.is_empty() {
         let strong = site.crud.forms.iter().any(|f| {
-            !f.fields.is_empty() && f.has_submit && f.fields.iter().all(|x| x.name.is_some())
+            !f.fields.is_empty()
+                && f.has_submit
+                && f.fields.iter().all(|x| x.name.is_some())
         }) && !site.crud.tables.is_empty();
-        return (
-            Pattern::P2FormCrud,
-            if strong { Fit::Strong } else { Fit::Partial },
-        );
+        return (Pattern::P2FormCrud, if strong { Fit::Strong } else { Fit::Partial });
     }
     (Pattern::P1StaticSite, Fit::Strong)
 }
@@ -142,6 +148,8 @@ fn transpiler_for(pattern: Pattern) -> fn(&str) -> TranspiledSite {
         Pattern::P2FormCrud => transpile_form_app,
         Pattern::P3DataViz => transpile_data_viz,
         Pattern::P4MediaPlayer => transpile_media_player,
+        Pattern::P5Realtime => transpile_realtime,
+        Pattern::P6ComplexSpa => transpile_spa,
         _ => transpile_static_site,
     }
 }
@@ -366,6 +374,23 @@ mod tests {
     }
 
     #[test]
+    fn classifies_realtime_collaboration() {
+        let html =
+            r#"<div id="collab-board" data-realtime="board" data-transport="websocket"></div>"#;
+        let (p, fit) = detect_pattern(html);
+        assert_eq!(p, Pattern::P5Realtime);
+        assert_eq!(fit, Fit::Strong);
+    }
+
+    #[test]
+    fn classifies_complex_spa() {
+        let html = r#"<div id="app"></div><a href="/home">Home</a><a href="/about">About</a>"#;
+        let (p, fit) = detect_pattern(html);
+        assert_eq!(p, Pattern::P6ComplexSpa);
+        assert_eq!(fit, Fit::Strong);
+    }
+
+    #[test]
     fn equivalence_check_fails_on_dangling_append() {
         // Hand-crafted op list with a forward reference that must fail.
         let site = TranspiledSite {
@@ -384,6 +409,8 @@ mod tests {
             crud: Default::default(),
             dataviz: Default::default(),
             media: Default::default(),
+            realtime: Default::default(),
+            spa: Default::default(),
         };
         assert!(!validate_equivalence(&site));
     }

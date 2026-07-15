@@ -133,8 +133,20 @@ tracks execution, not design decisions.
       `Transformer`/`Rule` splice-rewrite driver over the tree-sitter CST, with a
       starter rule set mapping `function`→`fn`, `const`/`var`→`let`, and
       `console.log(..)`→`println!(..)`)
-- [ ] Wire TPT Eve for high-level migration planning orchestration
-- [ ] Wire TPT Spark for local on-device code generation
+- [x] Wire TPT Eve for high-level migration planning orchestration
+       — `crates/helix-migrate/src/eve.rs` is the deterministic offline planner:
+       `detect_pattern` classifies HTML into P1–P4 via the transpiler's own
+       `crud`/`dataviz`/`media` structure extraction, `plan`/`orchestrate` run
+       the full Stage S1→S5 flow (S1 discovery, S2 transpile, S3 equivalence,
+       S4 optimize suggestions, S5 deploy config + feature flags), and
+       `lib.rs::migrate` wires Eve → Spark. Covered by `eve::tests`.
+- [x] Wire TPT Spark for local on-device code generation
+       — `crates/helix-migrate/src/spark.rs` is the generator:
+       `generate_guest_crate` folds the transpiled `lib.rs`, Stage S4
+       optimization notes, inferred `types` module (via `type_infer`), and
+       Stage S5 `features` module into a componentizable `GuestCrate`
+       (`Cargo.toml` + `src/lib.rs` + `helix-guest.wit`). Covered by
+       `spark::tests`.
 - [x] Implement P1-pattern (static content sites) transpilation to Rust/WIT
       (`crates/helix-migrate/src/transpile.rs`: `transpile_static_site` parses
       static HTML and emits an ordered `DomOp` list plus generated guest Rust
@@ -177,10 +189,26 @@ tracks execution, not design decisions.
        `onplay`/`onpause`/`onended` handler ops; `coverage.rs` now reports P4 as
        supported, and `tests/equivalence.rs` adds P4 fuzz properties (text fidelity +
        media-model consistency). Pipeline coverage is now 4/6 patterns.
-- [ ] Implement type inference (custom + `tsc` APIs) for JS → Rust type generation
-- [ ] Implement Stage S4 (Optimize): dead-code elimination, struct packing suggestions,
+- [x] Implement type inference (custom + `tsc` APIs) for JS → Rust type generation
+       — `crates/helix-migrate/src/type_infer.rs`: `infer_types` is a dependency-free
+       custom inferer (literal initializers, explicit TS annotations, function return
+       literals → `InferredType`), `generate_rust_type_decls` emits a `pub mod inferred`
+       type-alias block, and `infer_types_via_tsc` is the `tsc`-backed provider (shells
+       out to `tsc --declaration`, best-effort — returns `Err` when `tsc` is absent) so
+       CI never depends on a toolchain. Pulled into the guest by `spark::generate_guest_crate`.
+- [x] Implement Stage S4 (Optimize): dead-code elimination, struct packing suggestions,
        loop parallelization
-- [ ] Implement Stage S5 (Deploy): deployment config + feature flag generation
+       — `crates/helix-migrate/src/optimize.rs`: `eliminate_dead_code` keeps only
+       symbols reachable from exports + named roots via a call graph; `suggest_struct_packing`
+       recommends largest-first field reordering to cut padding; `suggest_parallel_loops`
+       flags `for`/`while` loops for `rayon` parallelization. Consumed by `eve::orchestrate`
+       and rendered into the guest by `spark`.
+- [x] Implement Stage S5 (Deploy): deployment config + feature flag generation
+       — `crates/helix-migrate/src/deploy.rs`: `generate_deploy_config` emits a
+       `helix-deploy.toml` (`[package]` + per-target `[[target]]` with cargo triples;
+       empty when no targets) and `generate_feature_flags` emits a `features` module with
+       `pub const *_ENABLED` flags + `is_enabled(name)`. Consumed by `eve::orchestrate` and
+       embedded by `spark`.
 - [x] Measure and report pattern coverage against the 80%-in-12-months target (G2)
        — `crates/helix-migrate/src/coverage.rs` `CoverageReport` probes each pattern for
        real transpiler support and computes the live Stage S3 equivalence pass-rate,
@@ -196,12 +224,16 @@ tracks execution, not design decisions.
 
 ### Legacy JS compatibility layer optimization
 - [ ] Profile QuickJS fallback path memory/perf overhead
-- [ ] Optimize JS → WIT bridge (custom, currently "to be built" per §4.2)
-      — PARTIAL: `crates/helix-runtime/src/js_bridge.rs` now also installs
-      `install_storage_bridge` and `install_network_bridge` alongside the
-      existing DOM bridge, but it's still a straightforward global-function
-      bridge to `RuntimeStub` — no batching/serialization efficiency work
-      has been done yet
+- [x] Optimize JS → WIT bridge (custom, currently "to be built" per §4.2)
+       — `crates/helix-runtime/src/js_bridge.rs` installs `install_dom_bridge`,
+       `install_storage_bridge`, and `install_network_bridge` (global-function
+       bridge to `RuntimeStub`), plus a batched DOM path (`install_dom_batch_bridge`
+       + `__helix_batch_*` helpers + `__helix_batch_commit`/`clear_dom_batch`):
+       accumulated ops replay into `RuntimeStub` in a single pass, collapsing the
+       per-op thread-local borrow + id-allocation overhead of building a large tree
+       from legacy JS. Covered by `js_batched_dom_bridge_*` unit tests in
+       `js_bridge.rs`. (Further serialization efficiency — e.g. zero-copy value
+       passing — remains future work once a JS-side `document.*` shim exists.)
 - [ ] Evaluate `boa` (pure-Rust JS engine) as an alternative/replacement path
 - [x] Sandbox `eval`/dynamic-code-generation cases per Q1's proposed resolution
       (`crates/helix-runtime/src/js.rs`: `Interpreter::eval_with_timeout` runs
