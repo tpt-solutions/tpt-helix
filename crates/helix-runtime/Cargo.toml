@@ -42,6 +42,7 @@ sha2 = "0.10"
 [dev-dependencies]
 helix-wit = { path = "../helix-wit" }
 criterion = "0.5"
+boa_engine = "0.21"
 
 [[bench]]
 name = "layout_bench"
@@ -49,4 +50,12 @@ harness = false
 
 [[bench]]
 name = "video_bench"
+harness = false
+
+[[bench]]
+name = "js_bench"
+harness = false
+
+[[bench]]
+name = "js_engine_compare"
 harness = false
