@@ -10,6 +10,7 @@ use taffy::prelude::{auto, length, percent};
 use taffy::{AvailableSpace, Dimension, Display, NodeId, Size, Style, TaffyTree};
 
 use crate::css::{DomElement, StyleRule, matches};
+use crate::profiler::Profiler;
 
 /// The result of laying out a parsed HTML document: a `taffy` tree plus a
 /// map from each DOM element to its `taffy` node, so callers can look up
@@ -51,8 +52,10 @@ fn resolve_style(element: &DomElement, rules: &[StyleRule]) -> Style {
     // the containing block and (critically) lets descendant *percentage*
     // widths resolve against a definite block parent, which the Flex default
     // silently collapses to zero.
-    let mut style = Style::default();
-    style.display = Display::Block;
+    let mut style = Style {
+        display: Display::Block,
+        ..Style::default()
+    };
     for (_, _, rule) in matched {
         apply_declarations(&mut style, &rule.declarations_css);
     }
@@ -149,6 +152,18 @@ pub fn build_layout_tree(dom: &RcDom, rules: &[StyleRule]) -> taffy::TaffyResult
 /// Computes layout for `layout.tree` against a viewport of `width`x`height`
 /// logical pixels.
 pub fn compute(layout: &mut DocumentLayout, width: f32, height: f32) -> taffy::TaffyResult<()> {
+    compute_profiled(layout, width, height, &Profiler::disabled())
+}
+
+/// Like [`compute`], but records one `layout.compute` op and the size of the
+/// layout tree's node count (as a memory proxy) into `profiler`.
+pub fn compute_profiled(
+    layout: &mut DocumentLayout,
+    width: f32,
+    height: f32,
+    profiler: &Profiler,
+) -> taffy::TaffyResult<()> {
+    let _span = profiler.span("layout.compute");
     // The root element represents the viewport: size it to the available space
     // so percentage widths/heights in descendants resolve against a definite
     // base instead of collapsing to zero.
@@ -156,13 +171,15 @@ pub fn compute(layout: &mut DocumentLayout, width: f32, height: f32) -> taffy::T
     root_style.size.width = length(width);
     root_style.size.height = length(height);
     layout.tree.set_style(layout.root, root_style)?;
-    layout.tree.compute_layout(
+    let result = layout.tree.compute_layout(
         layout.root,
         Size {
             width: AvailableSpace::Definite(width),
             height: AvailableSpace::Definite(height),
         },
-    )
+    );
+    profiler.record_memory("layout.tree.nodes", layout.tree.total_node_count() as u64);
+    result
 }
 
 #[cfg(test)]

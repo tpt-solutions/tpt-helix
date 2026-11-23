@@ -126,7 +126,9 @@ fn wasm_host_boundary_survives_malformed_input() {
         network::Host as NetworkHost, storage::Host as StorageHost,
     };
     let mut rng = Rng(0xbeefcafe);
-    let mut host = Host::new();
+    // Unrestricted: these tests exercise the allowed paths for panic-freedom.
+    // Denied-path behavior is covered by `ungranted_guest_is_denied_*`.
+    let mut host = Host::unrestricted();
 
     let mut ids = Vec::new();
     for _ in 0..200 {
@@ -187,7 +189,9 @@ fn wasm_host_boundary_survives_malformed_input() {
 #[test]
 fn dom_boundary_append_cycles_are_safe() {
     use helix_runtime::wasm::bindings::helix::runtime::dom::Host as DomHost;
-    let mut host = Host::new();
+    // Unrestricted: these tests exercise the allowed paths for panic-freedom.
+    // Denied-path behavior is covered by `ungranted_guest_is_denied_*`.
+    let mut host = Host::unrestricted();
     let a = host.create_element("div".into());
     let b = host.create_element("div".into());
     host.append_child(a, b);
