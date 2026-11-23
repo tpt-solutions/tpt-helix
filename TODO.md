@@ -258,7 +258,12 @@ tracks execution, not design decisions.
 ### Developer tooling: IDE plugins, debugger, profiler
 - [ ] Build IDE plugin(s) for TPT Lang / Rust / Zig → WASM authoring workflow
 - [ ] Build a WASM module debugger integrated with the capability broker
-- [ ] Build a runtime profiler (memory, layout ops/sec, WASM execution overhead)
+- [x] Build a runtime profiler (memory, layout ops/sec, WASM execution overhead)
+       — `crates/helix-runtime/src/profiler.rs`: dependency-free `Profiler` with
+       timed spans / `time` / `count` per channel (ops, total, mean, ops/sec) and
+       caller-reported memory gauges with peak tracking; disabled mode is a no-op.
+       Memory values are reported by owning subsystems (no OS heap probe yet).
+       Covered by `profiler::tests`.
 
 ### Embedded targets (Raspberry Pi, ARM64)
 - [ ] Cross-compile runtime for ARM64 / Raspberry Pi via `cross`
@@ -458,6 +463,104 @@ work outrun its test coverage.
       asserts an infinite loop is aborted by the interrupt handler and the
       interpreter recovers afterward; `sandboxed_interpreter_has_no_bridged_host_functions`
       asserts a bare interpreter exposes no `__helix_*` host hooks)
+
+## Review Follow-ups (2026-11-24 platform review)
+
+Findings from a read-only code review; none are execution-verified yet, so each
+fix should start with a failing regression test. WIT/spec changes go in
+`spec.txt` first (§5.2), then `helix.wit`, then the transpiler.
+
+### Security hardening (spec §5 capability model, §8 security testing)
+- [x] Make the capability broker mandatory: `Host::new()` (`wasm.rs`) currently has
+      no broker and `check_cap` allows everything; default to deny
+      (`wasm.rs`: `Host::new()` denies all until `Host::with_grants`; permissive path
+      is the explicit `Host::unrestricted()`; tests `ungranted_guest_is_denied_all_dom_and_storage`)
+- [x] Add wasmtime epoch/fuel interruption plus a `ResourceLimiter` (memory/table
+      caps) so a guest cannot spin or grow without bound (`wasm.rs`: `sandboxed_engine`,
+      `ResourceLimits`; test `fuel_exhaustion_traps_the_guest`)
+- [x] Fix `pattern_covers(Exact, Suffix)` scope widening on delegation; an exact
+      grant must cover only exact requests (`capability.rs`:
+      `exact_grant_does_not_cover_suffix_request`)
+- [x] Replace `host_of` with the `url` crate: handle ports, backslash, userinfo,
+      case, IPv6; add edge-case tests (`capability.rs`:
+      `host_of_handles_ports_userinfo_case_and_ipv6`)
+- [x] Use OS entropy (`getrandom`) for the token secret instead of clock/counter/
+      stack address (`capability.rs`: tokens drawn from `getrandom::fill`)
+- [x] Intersect a prompter's `Modify(narrowed)` with the requested capability
+      (`capability.rs`: `modify_cannot_widen_requested_scope`)
+- [x] Enforce parent expiry/revocation on delegated children (walk parent chain in
+      `check`) (`capability.rs`: `ensure_live`, `parent_expiry_invalidates_delegated_child`)
+- [x] Reject empty host lists, `(Some, None)` media bounds, and non-delimited
+      namespace prefixes (`app` must not cover `apple:x`) (`capability.rs`: tests
+      `empty_host_list_is_never_granted_or_authorized`, `bounded_media_grant_rejects_unbounded_request`,
+      `namespace_prefix_must_be_delimited`)
+- [x] Implement `DomScope::Subtree` authorization and verify target ids lie inside
+      the subtree (`stub.rs`: `check_dom_target`, parent index)
+- [ ] Cap libp2p frame/length allocations (`p2p_libp2p.rs`) and add a request size
+      limit to `RrConfig`
+- [ ] Verify content hashes inside `ContentSource::get`, validate `ContentId` as
+      64 lowercase hex, and replace the `"local-cache"` magic string with an enum
+- [ ] Cap DASH segment counts and use checked arithmetic (`dash.rs`); swap the
+      hand-rolled XML scan for `quick-xml`/`roxmltree`
+- [ ] Reject non-finite CSS values (`NaN%`, `inf`) in layout and add a recursion
+      depth limit to `layout.rs`, `html.rs`, `css.rs`
+- [ ] Cap JS bridge batch ops and per-app guest state (elements, handlers, storage);
+      isolate bridge state per app and route it through the broker
+- [ ] Add hostile-input tests: DASH segment explosion, deep nesting, oversized
+      frames, and unit tests for `stub.rs`/`wasm.rs`
+
+### WIT / migration correctness (spec §5.2, §6)
+- [ ] Reconcile `spec.txt` §5.2 WIT blocks (duplicated/garbled, undefined types,
+      world name `helix` vs `helix-guest`) with `helix.wit`
+- [ ] Add the missing DOM events (`submit`, `change`, `input`, `play`, `pause`,
+      `ended`) or a generic `on-event`, plus a host->guest `dispatch` export
+- [ ] Generate the guest world from (or check it against) `helix.wit`; remove the
+      hard-coded `../helix-wit/wit` path in generated and example crates
+- [ ] Make `coverage.rs` `supported()` compile the generated guest crate so the
+      "6/6 patterns" figure is meaningful; add screenshot-diff equivalence (S3)
+- [ ] Make `migrate()` return diagnostics/`Result`: surface `equivalence_ok`,
+      stop on `Fit::None`, and stop `detect_pattern` defaulting to P1/Strong
+- [ ] Wire `transpile_js_to_rust` into the S2 pipeline and fix its output (valid
+      `println!`, parameter types, overlapping edits, TS vs JS grammar errors)
+- [ ] Fix HTML transpiler text/whitespace joining, `<script>`/`<style>` raw text,
+      entity decoding; consider `html5ever` instead of `parse_html`
+- [ ] Replace id-substring pattern sniffing (`board`/`chat`/`doc`) with structural
+      detection; make the `discover` line-based fallback AST-only
+- [ ] appfront: use `from_rgba_unmultiplied`, cache layout per size, and route egui
+      input events to guest `on-click`
+
+### Observability and hygiene (spec §7, §9 developer tooling)
+- [x] Wire `profiler.rs` into `wasm.rs` and `layout.rs`; fix `mean()` u32 clamp and
+      allow nested spans
+- [ ] Adopt `tracing` with `RUST_LOG` and a capability-denial audit log with
+      remediation hints
+- [x] Replace `gpu.rs` readback `unwrap`/`expect` with `Result` (`GpuError`)
+- [ ] Remove the scaffold `add()`/`it_works` in `lib.rs` and "stub" wording in
+      `js_bridge.rs`/`stub.rs`
+
+### Adoption and developer experience (spec §9 roadmap: developer tooling)
+- [ ] New `helix-cli` crate: `run`, `render` (headless PNG), `migrate --report`,
+      `new`, `build`, `doctor`
+- [ ] `examples/`: hello-static (P1), todo-crud (P2), chart-dashboard (P3),
+      video-player (P4), legacy-js-app before/after; each run as a CI test
+- [ ] `templates/`: guest-basic, guest-network, guest-storage with capability
+      manifests, consumed by `helix new`
+- [ ] Docs: getting-started, guest authoring guide, capability manifest reference,
+      migration guide with coverage/limits table
+- [ ] Add `rust-toolchain.toml` + MSRV and document `wasm-tools` in the README
+- [ ] Add `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, issue/PR templates,
+      Dependabot
+- [ ] CI: tag-triggered release workflow (Linux/macOS/Windows binaries),
+      `cargo-deny`/`cargo-audit`, criterion benchmark tracking
+
+### Innovation candidates (need spec entries before implementation)
+- [ ] Capability manifest inference (learn mode / static scan -> minimal manifest)
+- [ ] Migration confidence report with compile check and screenshot diff
+- [ ] Deterministic host-call record/replay for tests and bug reports
+- [ ] `helix dev` hot-reload server preserving DOM/storage state
+- [ ] Capability-diff prompt on app update
+- [ ] Signed content-addressed app bundles (CID manifest, offline verify)
+- [ ] Web/WASM migration playground (JS on the left, generated guest on the right)
 
 ## Open Questions to Resolve (Section 10)
 
