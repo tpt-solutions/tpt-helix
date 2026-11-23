@@ -95,6 +95,9 @@ struct InternalElement {
 pub struct RuntimeState {
     next_id: u64,
     elements: HashMap<u64, InternalElement>,
+    /// Reverse of `InternalElement::children`: element id -> parent ids. Used to
+    /// decide whether an element lies inside a granted `DomScope::Subtree`.
+    parents: HashMap<u64, Vec<u64>>,
     /// Click handler ids registered per element id.
     click_handlers: HashMap<u64, Vec<u64>>,
     store: HashMap<String, Vec<u8>>,
@@ -187,6 +190,58 @@ impl RuntimeState {
         }))
     }
 
+    /// Enforces DOM authorization for an operation on element `id`.
+    ///
+    /// Creating elements needs `DomScope::Full` (see [`Self::create_element`]).
+    /// Modifying an existing element needs a grant whose `Subtree` root is the
+    /// element itself or one of its ancestors; a `Full` grant covers every
+    /// subtree. Subtree grants therefore cannot reach outside their root.
+    fn check_dom_target(&self, id: u64) -> Result<(), CapabilityError> {
+        let Some(broker) = self.broker.as_ref() else {
+            return Ok(());
+        };
+        let roots = self.ancestors_or_self(id);
+        for token in &self.active_tokens {
+            for root in &roots {
+                if broker
+                    .check(
+                        *token,
+                        &Capability::Dom {
+                            scope: DomScope::Subtree(*root),
+                        },
+                    )
+                    .is_ok()
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Err(CapabilityError::Denied {
+            app: self.active_app.clone().unwrap_or_default(),
+            capability: Capability::Dom {
+                scope: DomScope::Subtree(id),
+            },
+        })
+    }
+
+    /// `id` followed by every element that (transitively) contains it.
+    fn ancestors_or_self(&self, id: u64) -> Vec<u64> {
+        let mut out = vec![id];
+        let mut seen = std::collections::HashSet::from([id]);
+        let mut i = 0;
+        while i < out.len() {
+            if let Some(parents) = self.parents.get(&out[i]) {
+                for p in parents {
+                    if seen.insert(*p) {
+                        out.push(*p);
+                    }
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
     pub fn create_element(&mut self, tag: String) -> u64 {
         if self
             .check_cap(&Capability::Dom {
@@ -209,12 +264,7 @@ impl RuntimeState {
     }
 
     pub fn set_text(&mut self, id: u64, text: String) {
-        if self
-            .check_cap(&Capability::Dom {
-                scope: DomScope::Full,
-            })
-            .is_err()
-        {
+        if self.check_dom_target(id).is_err() {
             return;
         }
         if let Some(node) = self.elements.get_mut(&id) {
@@ -223,12 +273,7 @@ impl RuntimeState {
     }
 
     pub fn set_attribute(&mut self, id: u64, name: String, value: String) {
-        if self
-            .check_cap(&Capability::Dom {
-                scope: DomScope::Full,
-            })
-            .is_err()
-        {
+        if self.check_dom_target(id).is_err() {
             return;
         }
         if let Some(node) = self.elements.get_mut(&id) {
@@ -237,26 +282,21 @@ impl RuntimeState {
     }
 
     pub fn append_child(&mut self, parent: u64, child: u64) {
-        if self
-            .check_cap(&Capability::Dom {
-                scope: DomScope::Full,
-            })
-            .is_err()
-        {
+        // Both ends must be inside the caller's granted subtree.
+        if self.check_dom_target(parent).is_err() || self.check_dom_target(child).is_err() {
             return;
         }
         if let Some(node) = self.elements.get_mut(&parent) {
             node.children.push(child);
+            let parents = self.parents.entry(child).or_default();
+            if !parents.contains(&parent) {
+                parents.push(parent);
+            }
         }
     }
 
     pub fn on_click(&mut self, id: u64, handler_id: u64) {
-        if self
-            .check_cap(&Capability::Dom {
-                scope: DomScope::Full,
-            })
-            .is_err()
-        {
+        if self.check_dom_target(id).is_err() {
             return;
         }
         self.click_handlers.entry(id).or_default().push(handler_id);
@@ -309,6 +349,9 @@ impl RuntimeState {
 
     pub fn fetch(&self, req: Request) -> Result<Response, String> {
         let host = crate::capability::host_of(&req.url);
+        if host.is_empty() {
+            return Err(format!("network: no host in {:?}", req.url));
+        }
         self.check_cap(&Capability::Network {
             hosts: vec![HostPattern::Exact(host)],
         })

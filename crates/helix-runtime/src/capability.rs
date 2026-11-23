@@ -19,7 +19,6 @@
 //! stateful wasmtime `Host`.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Identifies a running application / module instance.
@@ -56,6 +55,10 @@ impl HostPattern {
             HostPattern::Exact(e) => e.eq_ignore_ascii_case(host),
             HostPattern::Suffix(s) => {
                 let s = s.trim_start_matches('.').to_ascii_lowercase();
+                // An empty suffix would otherwise match every dotted host.
+                if s.is_empty() {
+                    return false;
+                }
                 let host = host.to_ascii_lowercase();
                 host == s || host.ends_with(&format!(".{s}"))
             }
@@ -176,12 +179,9 @@ impl GrantPrompter for DenyAllPrompter {
     }
 }
 
-static TOKEN_COUNTER: AtomicU64 = AtomicU64::new(0);
-
 /// The Capability Broker: grant registry + scoping + revocation + delegation.
 #[derive(Debug)]
 pub struct CapabilityBroker {
-    secret: u64,
     next_grant: u64,
     grants: HashMap<GrantId, Grant>,
     app_grants: HashMap<AppId, Vec<GrantId>>,
@@ -197,24 +197,9 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// SplitMix64 — cheap, dependency-free mixing for token generation.
-fn splitmix64(state: &mut u64) -> u64 {
-    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    let mut z = *state;
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
-
 impl Default for CapabilityBroker {
     fn default() -> Self {
-        let stack_var = 0u64;
-        let seed = now_secs()
-            .wrapping_mul(6364_1362_6637_8788)
-            .wrapping_add(TOKEN_COUNTER.fetch_add(1, Ordering::Relaxed))
-            .wrapping_add(&stack_var as *const _ as usize as u64);
         CapabilityBroker {
-            secret: seed | 1,
             next_grant: 1,
             grants: HashMap::new(),
             app_grants: HashMap::new(),
@@ -229,11 +214,22 @@ impl CapabilityBroker {
         Self::default()
     }
 
-    fn mint_token(&self, grant_id: GrantId) -> CapabilityToken {
-        let mut state = self.secret ^ (grant_id.0.wrapping_mul(0x2545F4914F6CDD1D));
-        let lo = splitmix64(&mut state);
-        let hi = splitmix64(&mut state);
-        CapabilityToken(((hi as u128) << 64) | lo as u128)
+    /// Draws a fresh token from OS entropy. Tokens are looked up in a table and
+    /// never derived from predictable state (clock, counters, addresses).
+    ///
+    /// Panics if the OS entropy source is unavailable: minting a predictable
+    /// token would silently defeat the capability model, so failing closed is
+    /// the only safe behavior.
+    fn mint_token(&self) -> CapabilityToken {
+        loop {
+            let mut buf = [0u8; 16];
+            getrandom::fill(&mut buf)
+                .expect("OS entropy unavailable: refusing to mint capability tokens");
+            let token = CapabilityToken(u128::from_le_bytes(buf));
+            if !self.tokens.contains_key(&token) {
+                return token;
+            }
+        }
     }
 
     fn issue(
@@ -255,9 +251,45 @@ impl CapabilityBroker {
         };
         self.grants.insert(id, grant);
         self.app_grants.entry(app).or_default().push(id);
-        let token = self.mint_token(id);
+        let token = self.mint_token();
         self.tokens.insert(token, id);
         (id, token)
+    }
+
+    /// Verifies that `id` and every ancestor in its delegation chain are live
+    /// (not revoked, not expired). A child is only as live as its parent: a
+    /// parent that expired (rather than being explicitly revoked) must still
+    /// invalidate its delegated children.
+    fn ensure_live(&self, id: GrantId, now: u64) -> Result<(), CapabilityError> {
+        let mut current = Some(id);
+        while let Some(gid) = current {
+            let grant = self
+                .grants
+                .get(&gid)
+                .ok_or(CapabilityError::InvalidToken(CapabilityToken(0)))?;
+            if grant.revoked {
+                return Err(CapabilityError::Revoked {
+                    grant: gid,
+                    reason: if gid == id {
+                        "grant revoked".into()
+                    } else {
+                        "ancestor grant revoked".into()
+                    },
+                });
+            }
+            if grant.is_expired(now) {
+                return Err(CapabilityError::Revoked {
+                    grant: gid,
+                    reason: if gid == id {
+                        "grant expired".into()
+                    } else {
+                        "ancestor grant expired".into()
+                    },
+                });
+            }
+            current = grant.parent;
+        }
+        Ok(())
     }
 
     /// Record a grant for `app` (e.g. from a previously-resolved prompt) and
@@ -288,13 +320,25 @@ impl CapabilityBroker {
         requested: Capability,
         prompter: &P,
     ) -> Result<CapabilityToken, CapabilityError> {
+        let denied = || CapabilityError::Denied {
+            app: app.clone(),
+            capability: requested.clone(),
+        };
+        // A request that covers nothing (e.g. an empty host list) is never grantable.
+        if is_empty_request(&requested) {
+            return Err(denied());
+        }
         match prompter.request(app, &requested) {
-            GrantDecision::Deny => Err(CapabilityError::Denied {
-                app: app.clone(),
-                capability: requested,
-            }),
+            GrantDecision::Deny => Err(denied()),
             GrantDecision::Allow => Ok(self.grant(app.clone(), requested)),
-            GrantDecision::Modify(narrowed) => Ok(self.grant(app.clone(), narrowed)),
+            // A prompter may only narrow the request, never widen it: the
+            // modified capability is intersected with what was asked for.
+            GrantDecision::Modify(narrowed) => {
+                let scoped = intersect(&requested, &narrowed)
+                    .filter(|c| !is_empty_request(c))
+                    .ok_or_else(denied)?;
+                Ok(self.grant(app.clone(), scoped))
+            }
         }
     }
 
@@ -346,12 +390,7 @@ impl CapabilityBroker {
             .grants
             .get(&parent_id)
             .ok_or(CapabilityError::InvalidToken(parent_token))?;
-        if parent.revoked {
-            return Err(CapabilityError::Revoked {
-                grant: parent_id,
-                reason: "parent grant revoked".into(),
-            });
-        }
+        self.ensure_live(parent_id, now_secs())?;
         let scoped =
             intersect(&parent.capability, &child).ok_or_else(|| CapabilityError::Denied {
                 app: to_app.clone(),
@@ -385,18 +424,7 @@ impl CapabilityBroker {
             .grants
             .get(&id)
             .ok_or(CapabilityError::InvalidToken(token))?;
-        if grant.revoked {
-            return Err(CapabilityError::Revoked {
-                grant: id,
-                reason: "grant revoked".into(),
-            });
-        }
-        if grant.is_expired(now_secs()) {
-            return Err(CapabilityError::Revoked {
-                grant: id,
-                reason: "grant expired".into(),
-            });
-        }
+        self.ensure_live(id, now_secs())?;
         match contains(&grant.capability, requested) {
             true => Ok(id),
             false => Err(CapabilityError::Denied {
@@ -425,8 +453,22 @@ impl CapabilityBroker {
     }
 }
 
+/// Is `requested` a capability that can never be satisfied (covers nothing)?
+fn is_empty_request(requested: &Capability) -> bool {
+    match requested {
+        Capability::Network { hosts } => hosts.is_empty(),
+        Capability::Storage {
+            scope: StorageScope::Namespace(n),
+        } => n.is_empty(),
+        _ => false,
+    }
+}
+
 /// Does `grant` (the authorized capability) cover `requested` (the operation)?
 fn contains(grant: &Capability, requested: &Capability) -> bool {
+    if is_empty_request(requested) {
+        return false;
+    }
     match (grant, requested) {
         (Capability::Network { hosts: gh }, Capability::Network { hosts: rh }) => {
             !rh.iter().any(|p| !gh.iter().any(|g| pattern_covers(g, p)))
@@ -438,7 +480,8 @@ fn contains(grant: &Capability, requested: &Capability) -> bool {
         (Capability::Media { max_resolution: gm }, Capability::Media { max_resolution: rm }) => {
             match (gm, rm) {
                 (Some((gw, gh)), Some((rw, rh))) => rw <= gw && rh <= gh,
-                (Some(_), None) => true,
+                // A bounded grant never authorizes an unbounded request.
+                (Some(_), None) => false,
                 (None, _) => true,
             }
         }
@@ -448,29 +491,48 @@ fn contains(grant: &Capability, requested: &Capability) -> bool {
 
 /// A pattern `g` covers pattern `p` if every host matched by `p` is also
 /// matched by `g`.
+///
+/// An exact grant covers only exact requests: `Exact("example.com")` does not
+/// authorize `Suffix(".example.com")`, which would also reach every subdomain.
 fn pattern_covers(g: &HostPattern, p: &HostPattern) -> bool {
     match (g, p) {
         (HostPattern::Any, _) => true,
         (HostPattern::Exact(ge), HostPattern::Exact(pe)) => ge.eq_ignore_ascii_case(pe),
-        (HostPattern::Exact(ge), HostPattern::Suffix(ps)) => {
-            HostPattern::Exact(ge.clone()).matches(ps.trim_start_matches('.'))
-        }
+        (HostPattern::Exact(_), HostPattern::Suffix(_)) => false,
+        (HostPattern::Exact(_), HostPattern::Any) => false,
         (HostPattern::Suffix(gs), HostPattern::Suffix(ps)) => {
             let gs = gs.trim_start_matches('.').to_ascii_lowercase();
             let ps = ps.trim_start_matches('.').to_ascii_lowercase();
-            ps == gs || ps.ends_with(&format!(".{gs}"))
+            !gs.is_empty() && (ps == gs || ps.ends_with(&format!(".{gs}")))
         }
         (HostPattern::Suffix(gs), HostPattern::Exact(pe)) => {
             HostPattern::Suffix(gs.clone()).matches(pe)
         }
-        _ => false,
+        (HostPattern::Suffix(_), HostPattern::Any) => false,
     }
 }
+
+/// Namespace delimiters: a grant on `app` covers `app:x` and `app/x`, but not
+/// `apple:x`.
+const NAMESPACE_DELIMITERS: [char; 2] = [':', '/'];
 
 fn storage_contains(g: &StorageScope, r: &StorageScope) -> bool {
     match (g, r) {
         (StorageScope::Global, _) => true,
-        (StorageScope::Namespace(gn), StorageScope::Namespace(rn)) => rn.starts_with(gn),
+        (StorageScope::Namespace(gn), StorageScope::Namespace(rn)) => {
+            if gn.is_empty() {
+                return false;
+            }
+            if rn == gn {
+                return true;
+            }
+            match rn.strip_prefix(gn.as_str()) {
+                Some(rest) => {
+                    gn.ends_with(NAMESPACE_DELIMITERS) || rest.starts_with(NAMESPACE_DELIMITERS)
+                }
+                None => false,
+            }
+        }
         _ => false,
     }
 }
@@ -519,19 +581,51 @@ fn intersect(parent: &Capability, child: &Capability) -> Option<Capability> {
     }
 }
 
-/// Extract the host portion of a URL (`https://api.example.com/path` →
-/// `api.example.com`). Falls back to the whole string if no scheme separator.
-pub fn host_of(url: &str) -> String {
-    let after_scheme = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
-    let authority = after_scheme
-        .split(['/', '?', '#'])
+/// Extracts the lowercase host of a URL (`https://api.example.com/path` →
+/// `api.example.com`), handling ports, userinfo, IPv6 literals, and
+/// backslashes.
+///
+/// URLs with a scheme are parsed by the `url` crate, which applies the WHATWG
+/// rules. A scheme-less authority (`api.example.com:8443/x`) is parsed by hand
+/// with the same delimiters. Returns an empty string when no host can be
+/// determined; an empty host matches no `Exact`/`Suffix` pattern, so the
+/// request fails closed.
+pub fn host_of(input: &str) -> String {
+    // Only inputs with an explicit `://` are URLs. Without it, `url` would read
+    // `host:port` as `scheme:opaque-path` and yield no host.
+    if input.contains("://") {
+        return match url::Url::parse(input) {
+            Ok(parsed) => match parsed.host() {
+                Some(url::Host::Domain(d)) => d.to_ascii_lowercase(),
+                Some(url::Host::Ipv4(a)) => a.to_string(),
+                Some(url::Host::Ipv6(a)) => a.to_string(),
+                None => String::new(),
+            },
+            Err(_) => String::new(),
+        };
+    }
+    // Scheme-less: take the authority up to the first path/query/fragment
+    // delimiter (a backslash also ends it, as in special-scheme URLs).
+    let authority = input
+        .trim_start_matches("//")
+        .split(['/', '\\', '?', '#'])
         .next()
-        .unwrap_or(after_scheme);
-    authority
-        .split('@')
-        .next_back()
-        .unwrap_or(authority)
-        .to_string()
+        .unwrap_or("");
+    // Drop userinfo: everything up to the last '@'.
+    let hostport = authority.rsplit('@').next().unwrap_or("");
+    let host = if let Some(rest) = hostport.strip_prefix('[') {
+        // IPv6 literal: `[addr]` or `[addr]:port`.
+        rest.split(']').next().unwrap_or("")
+    } else {
+        // Strip a trailing `:port`; a bare host has exactly one ':' at most
+        // only when it is a port (multiple colons are not a valid hostname).
+        match hostport.matches(':').count() {
+            0 => hostport,
+            1 => hostport.split(':').next().unwrap_or(""),
+            _ => "",
+        }
+    };
+    host.to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -760,5 +854,202 @@ mod tests {
         );
         assert_eq!(host_of("http://cdn.example.com"), "cdn.example.com");
         assert_eq!(host_of("api.example.com"), "api.example.com");
+    }
+
+    #[test]
+    fn host_of_handles_ports_userinfo_case_and_ipv6() {
+        assert_eq!(host_of("https://API.Example.COM:8443/x"), "api.example.com");
+        assert_eq!(
+            host_of("https://user:pw@api.example.com/x"),
+            "api.example.com"
+        );
+        assert_eq!(
+            host_of("https://evil.test@api.example.com/x"),
+            "api.example.com"
+        );
+        assert_eq!(host_of("https://[::1]:8080/x"), "::1");
+        assert_eq!(host_of("api.example.com:8443/x"), "api.example.com");
+        assert_eq!(host_of("api.example.com:8443"), "api.example.com");
+        // Backslash ends the authority, as in special-scheme URLs.
+        assert_eq!(
+            host_of("https://api.example.com\\evil.test/x"),
+            "api.example.com"
+        );
+        // Unparseable / hostless input fails closed with an empty host.
+        assert_eq!(host_of(""), "");
+        assert_eq!(host_of("https://"), "");
+    }
+
+    #[test]
+    fn exact_grant_does_not_cover_suffix_request() {
+        let mut b = CapabilityBroker::new();
+        let tok = b.grant("app".into(), network(&["example.com"]));
+        let suffix = Capability::Network {
+            hosts: vec![HostPattern::Suffix(".example.com".into())],
+        };
+        assert!(b.check(tok, &suffix).is_err());
+        assert!(b.check(tok, &network(&["example.com"])).is_ok());
+        assert!(b.check(tok, &network(&["api.example.com"])).is_err());
+    }
+
+    #[test]
+    fn empty_host_list_is_never_granted_or_authorized() {
+        let mut b = CapabilityBroker::new();
+        let tok = b.grant("app".into(), network(&["api.example.com"]));
+        assert!(b.check(tok, &network(&[])).is_err());
+
+        let err = b
+            .request_capability(&"app".into(), network(&[]), &AllowAllPrompter)
+            .unwrap_err();
+        assert!(matches!(err, CapabilityError::Denied { .. }));
+    }
+
+    #[test]
+    fn bounded_media_grant_rejects_unbounded_request() {
+        let mut b = CapabilityBroker::new();
+        let tok = b.grant(
+            "app".into(),
+            Capability::Media {
+                max_resolution: Some((1280, 720)),
+            },
+        );
+        assert!(
+            b.check(
+                tok,
+                &Capability::Media {
+                    max_resolution: None
+                }
+            )
+            .is_err()
+        );
+        // An unbounded grant still covers bounded requests.
+        let open = b.grant(
+            "app".into(),
+            Capability::Media {
+                max_resolution: None,
+            },
+        );
+        assert!(
+            b.check(
+                open,
+                &Capability::Media {
+                    max_resolution: Some((3840, 2160))
+                }
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn namespace_prefix_must_be_delimited() {
+        let mut b = CapabilityBroker::new();
+        let tok = b.grant(
+            "app".into(),
+            Capability::Storage {
+                scope: StorageScope::Namespace("app".into()),
+            },
+        );
+        let req = |ns: &str| Capability::Storage {
+            scope: StorageScope::Namespace(ns.into()),
+        };
+        assert!(b.check(tok, &req("app:x")).is_ok());
+        assert!(b.check(tok, &req("app")).is_ok());
+        assert!(b.check(tok, &req("apple:x")).is_err());
+    }
+
+    #[test]
+    fn empty_namespace_grant_covers_nothing() {
+        let mut b = CapabilityBroker::new();
+        let tok = b.grant(
+            "app".into(),
+            Capability::Storage {
+                scope: StorageScope::Namespace(String::new()),
+            },
+        );
+        assert!(
+            b.check(
+                tok,
+                &Capability::Storage {
+                    scope: StorageScope::Namespace("anything".into())
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn modify_cannot_widen_requested_scope() {
+        struct Widen;
+        impl GrantPrompter for Widen {
+            fn request(&self, _app: &AppId, _requested: &Capability) -> GrantDecision {
+                GrantDecision::Modify(Capability::Storage {
+                    scope: StorageScope::Global,
+                })
+            }
+        }
+        let mut b = CapabilityBroker::new();
+        let err = b
+            .request_capability(
+                &"app".into(),
+                Capability::Storage {
+                    scope: StorageScope::Namespace("app:".into()),
+                },
+                &Widen,
+            )
+            .unwrap_err();
+        assert!(matches!(err, CapabilityError::Denied { .. }));
+    }
+
+    #[test]
+    fn parent_expiry_invalidates_delegated_child() {
+        let mut b = CapabilityBroker::new();
+        let parent = b.grant_until(
+            "parent".into(),
+            Capability::Network {
+                hosts: vec![HostPattern::Any],
+            },
+            // Already expired.
+            1,
+        );
+        // Delegating from an expired parent is refused outright.
+        assert!(
+            b.delegate(parent, "child".into(), network(&["api.example.com"]))
+                .is_err()
+        );
+
+        // A child created while the parent was live is invalidated when the
+        // parent later expires (no explicit revoke).
+        let mut b = CapabilityBroker::new();
+        let parent = b.grant_until(
+            "parent".into(),
+            Capability::Network {
+                hosts: vec![HostPattern::Any],
+            },
+            now_secs() + 3600,
+        );
+        let child = b
+            .delegate(parent, "child".into(), network(&["api.example.com"]))
+            .unwrap();
+        assert!(b.check(child, &network(&["api.example.com"])).is_ok());
+        let pid = b.resolve(parent).unwrap();
+        b.grants.get_mut(&pid).unwrap().expires_at = Some(1);
+        assert!(matches!(
+            b.check(child, &network(&["api.example.com"])),
+            Err(CapabilityError::Revoked { .. })
+        ));
+    }
+
+    #[test]
+    fn tokens_are_unique_and_unpredictable_across_brokers() {
+        let mut a = CapabilityBroker::new();
+        let mut b = CapabilityBroker::new();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..256 {
+            assert!(seen.insert(a.grant("app".into(), network(&["x.test"]))));
+        }
+        // Independent brokers do not produce the same token stream.
+        let ta = a.grant("app".into(), network(&["x.test"]));
+        let tb = b.grant("app".into(), network(&["x.test"]));
+        assert_ne!(ta, tb);
     }
 }

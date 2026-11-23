@@ -3053,6 +3053,7 @@ dependencies = [
  "cssparser 0.37.0",
  "encoding_rs",
  "fontdb 0.16.2",
+ "getrandom 0.3.4",
  "helix-wit",
  "html5ever",
  "image",
@@ -3067,6 +3068,7 @@ dependencies = [
  "sha2",
  "taffy",
  "tokio",
+ "url",
  "wasmtime",
  "wgpu",
 ]

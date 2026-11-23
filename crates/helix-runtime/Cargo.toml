@@ -38,6 +38,8 @@ rquickjs = { version = "0.6", features = ["macro"] }
 helix-wit = { path = "../helix-wit" }
 wasmtime = "46"
 sha2 = "0.10"
+url = "2"
+getrandom = "0.3"
 
 [dev-dependencies]
 helix-wit = { path = "../helix-wit" }
