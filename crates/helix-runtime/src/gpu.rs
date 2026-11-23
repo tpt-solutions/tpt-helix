@@ -12,6 +12,27 @@ use wgpu::util::DeviceExt;
 
 use crate::display_list::DisplayItem;
 
+/// Failures from the GPU readback path. Surfaced instead of panicking so a
+/// lost device or a failed buffer map can be reported by the caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GpuError {
+    /// `wgpu` failed to map the readback buffer.
+    Map(String),
+    /// The map callback never reported back (device lost or dropped).
+    ReadbackChannelClosed,
+}
+
+impl std::fmt::Display for GpuError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GpuError::Map(e) => write!(f, "failed to map readback buffer: {e}"),
+            GpuError::ReadbackChannelClosed => write!(f, "readback callback never completed"),
+        }
+    }
+}
+
+impl std::error::Error for GpuError {}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Vertex {
@@ -150,7 +171,12 @@ impl GpuContext {
     /// against a `width`x`height` transparent-black target and reads the
     /// result back as tightly-packed RGBA8 rows — the "present" step for a
     /// headless (no `wgpu::Surface`) pipeline.
-    pub fn render_to_rgba8(&self, items: &[DisplayItem], width: u32, height: u32) -> Vec<u8> {
+    pub fn render_to_rgba8(
+        &self,
+        items: &[DisplayItem],
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, GpuError> {
         let vertices = Self::vertices_for(items, width as f32, height as f32);
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -260,7 +286,8 @@ impl GpuContext {
             let _ = tx.send(result);
         });
         self.device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().expect("failed to map readback buffer");
+        let mapped = rx.recv().map_err(|_| GpuError::ReadbackChannelClosed)?;
+        mapped.map_err(|e| GpuError::Map(format!("{e:?}")))?;
 
         let padded = slice.get_mapped_range();
         let mut pixels = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
@@ -269,7 +296,7 @@ impl GpuContext {
         }
         drop(padded);
         output_buffer.unmap();
-        pixels
+        Ok(pixels)
     }
 }
 
@@ -296,7 +323,9 @@ mod tests {
                 a: 1.0,
             },
         }];
-        let pixels = gpu.render_to_rgba8(&items, 8, 8);
+        let pixels = gpu
+            .render_to_rgba8(&items, 8, 8)
+            .expect("readback succeeds");
         assert_eq!(pixels.len(), 8 * 8 * 4);
 
         let idx = ((4 * 8 + 4) * 4) as usize;
