@@ -17,6 +17,25 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ContentId(pub String);
 
+impl ContentId {
+    /// Parses a content id from its canonical form: exactly 64 lowercase hex
+    /// characters (a SHA-256 digest). Anything else is rejected, so untrusted
+    /// strings from guests or the network never become ids.
+    pub fn parse(s: &str) -> Option<ContentId> {
+        let id = ContentId(s.to_owned());
+        id.is_well_formed().then_some(id)
+    }
+
+    /// Whether this id is 64 lowercase hex characters.
+    pub fn is_well_formed(&self) -> bool {
+        self.0.len() == 64
+            && self
+                .0
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }
+}
+
 impl std::fmt::Display for ContentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -185,6 +204,17 @@ mod tests {
         assert_eq!(id, id2);
         assert_eq!(store.len(), 1);
         assert_eq!(store.get(&id), Some(&b"immutable asset"[..]));
+    }
+
+    #[test]
+    fn content_id_parse_accepts_only_canonical_form() {
+        let good = digest(b"x").0;
+        assert!(ContentId::parse(&good).is_some());
+        assert!(ContentId::parse(&good.to_uppercase()).is_none());
+        assert!(ContentId::parse("abc").is_none());
+        assert!(ContentId::parse(&format!("{good}0")).is_none());
+        assert!(ContentId::parse(&format!("{}g", &good[..63])).is_none());
+        assert!(ContentId::parse("").is_none());
     }
 
     #[test]

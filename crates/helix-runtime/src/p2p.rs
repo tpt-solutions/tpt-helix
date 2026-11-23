@@ -31,10 +31,19 @@ impl PeerId {
     }
 }
 
+/// Where a provider record points: a remote peer, or this node's own cache.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderKind {
+    /// A remote peer reached through content routing / bitswap.
+    Network(PeerId),
+    /// The local [`ContentStore`] (offline-first fallback, G9).
+    LocalCache,
+}
+
 /// A provider record returned by content routing (`findproviders`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provider {
-    pub peer: PeerId,
+    pub kind: ProviderKind,
     /// Approximate byte size advertised by the provider (0 = unknown).
     pub size: u64,
 }
@@ -48,6 +57,9 @@ pub enum ContentSourceError {
     Integrity(ContentId),
     /// The fetch could not be completed (provider unreachable / empty).
     Unavailable(ContentId),
+    /// The id is not a well-formed content id (64 lowercase hex). Rejected
+    /// before any routing or fetch is attempted.
+    InvalidId(ContentId),
 }
 
 /// A content-addressable block source: content routing + retrieval.
@@ -69,8 +81,16 @@ pub trait ContentSource {
     ) -> Result<Vec<u8>, ContentSourceError>;
 
     /// Convenience: resolve-and-fetch from any known provider, returning the
-    /// first verified block (or the first error if none succeed).
+    /// first block whose SHA-256 matches `id`.
+    ///
+    /// The hash is checked here, not trusted from the transport: a provider
+    /// that returns bytes for a different digest is recorded as an integrity
+    /// failure and the next provider is tried. If every provider fails, the
+    /// last error is returned.
     fn get(&self, id: &ContentId) -> Result<Vec<u8>, ContentSourceError> {
+        if !id.is_well_formed() {
+            return Err(ContentSourceError::InvalidId(id.clone()));
+        }
         let providers = self.find_providers(id);
         if providers.is_empty() {
             return Err(ContentSourceError::NotFound(id.clone()));
@@ -78,7 +98,8 @@ pub trait ContentSource {
         let mut last_err = ContentSourceError::Unavailable(id.clone());
         for provider in &providers {
             match self.fetch_block(provider, id) {
-                Ok(bytes) => return Ok(bytes),
+                Ok(bytes) if ContentStore::verify(id, &bytes) => return Ok(bytes),
+                Ok(_) => last_err = ContentSourceError::Integrity(id.clone()),
                 Err(e) => last_err = e,
             }
         }
@@ -137,7 +158,7 @@ impl PeerNetwork {
                         .map(|b| b.len() as u64)
                         .unwrap_or(0);
                     Provider {
-                        peer: p.clone(),
+                        kind: ProviderKind::Network(p.clone()),
                         size,
                     }
                 })
@@ -181,7 +202,11 @@ impl ContentSource for PeerNetwork {
         provider: &Provider,
         id: &ContentId,
     ) -> Result<Vec<u8>, ContentSourceError> {
-        self.fetch_from(&provider.peer, id)
+        match &provider.kind {
+            ProviderKind::Network(peer) => self.fetch_from(peer, id),
+            // A swarm node never advertises the local cache.
+            ProviderKind::LocalCache => Err(ContentSourceError::Unavailable(id.clone())),
+        }
     }
 }
 
@@ -213,7 +238,7 @@ impl ContentSource for LocalFallbackSource {
         let mut providers = self.network.find_providers(id);
         if providers.is_empty() && self.local.lock().unwrap().get_verified(id).is_some() {
             providers.push(Provider {
-                peer: PeerId::new("local-cache"),
+                kind: ProviderKind::LocalCache,
                 size: self
                     .local
                     .lock()
@@ -231,14 +256,14 @@ impl ContentSource for LocalFallbackSource {
         provider: &Provider,
         id: &ContentId,
     ) -> Result<Vec<u8>, ContentSourceError> {
-        if provider.peer == PeerId::new("local-cache") {
-            self.local
+        match &provider.kind {
+            ProviderKind::LocalCache => self
+                .local
                 .lock()
                 .unwrap()
                 .get_verified(id)
-                .ok_or_else(|| ContentSourceError::Unavailable(id.clone()))
-        } else {
-            self.network.fetch_block(provider, id)
+                .ok_or_else(|| ContentSourceError::Unavailable(id.clone())),
+            ProviderKind::Network(_) => self.network.fetch_block(provider, id),
         }
     }
 }
@@ -261,7 +286,7 @@ mod tests {
         // DHT routing resolves the provider.
         let providers = net.find_providers(&id);
         assert_eq!(providers.len(), 1);
-        assert_eq!(providers[0].peer, peer);
+        assert_eq!(providers[0].kind, ProviderKind::Network(peer.clone()));
         // bitswap fetch returns integrity-verified bytes.
         let bytes = net.fetch_from(&peer, &id).unwrap();
         assert_eq!(bytes, b"immutable video segment");
@@ -300,8 +325,99 @@ mod tests {
         let id = src.cache(b"offline asset");
         assert!(matches!(
             src.find_providers(&id).as_slice(),
-            [Provider { peer, .. }] if *peer == PeerId::new("local-cache")
+            [Provider {
+                kind: ProviderKind::LocalCache,
+                ..
+            }]
         ));
         assert_eq!(src.get(&id).unwrap(), b"offline asset");
+    }
+
+    #[test]
+    fn get_rejects_malformed_content_ids_before_routing() {
+        let net = PeerNetwork::new();
+        let bogus = ContentId("not-a-digest".into());
+        assert!(matches!(
+            net.get(&bogus),
+            Err(ContentSourceError::InvalidId(_))
+        ));
+        // Uppercase hex is not the canonical form.
+        let upper = ContentId(digest(b"x").0.to_uppercase());
+        assert!(matches!(
+            net.get(&upper),
+            Err(ContentSourceError::InvalidId(_))
+        ));
+    }
+
+    /// A transport that advertises two providers for every id, one honest and
+    /// one that serves substituted bytes.
+    struct Substituting {
+        honest: PeerId,
+        liar: PeerId,
+        bytes: Vec<u8>,
+    }
+
+    impl ContentSource for Substituting {
+        fn find_providers(&self, _id: &ContentId) -> Vec<Provider> {
+            vec![
+                Provider {
+                    kind: ProviderKind::Network(self.liar.clone()),
+                    size: 0,
+                },
+                Provider {
+                    kind: ProviderKind::Network(self.honest.clone()),
+                    size: 0,
+                },
+            ]
+        }
+
+        fn fetch_block(
+            &self,
+            provider: &Provider,
+            _id: &ContentId,
+        ) -> Result<Vec<u8>, ContentSourceError> {
+            match &provider.kind {
+                ProviderKind::Network(p) if *p == self.liar => Ok(b"substituted".to_vec()),
+                _ => Ok(self.bytes.clone()),
+            }
+        }
+    }
+
+    #[test]
+    fn get_skips_a_provider_that_serves_substituted_bytes() {
+        let bytes = b"the real block".to_vec();
+        let id = digest(&bytes);
+        let src = Substituting {
+            honest: PeerId::new("honest"),
+            liar: PeerId::new("liar"),
+            bytes: bytes.clone(),
+        };
+        // The liar is listed first; the verified fetch must still succeed.
+        assert_eq!(src.get(&id).unwrap(), bytes);
+    }
+
+    #[test]
+    fn get_reports_integrity_when_every_provider_substitutes() {
+        struct AllLiars;
+        impl ContentSource for AllLiars {
+            fn find_providers(&self, _id: &ContentId) -> Vec<Provider> {
+                vec![Provider {
+                    kind: ProviderKind::Network(PeerId::new("liar")),
+                    size: 0,
+                }]
+            }
+            fn fetch_block(
+                &self,
+                _provider: &Provider,
+                _id: &ContentId,
+            ) -> Result<Vec<u8>, ContentSourceError> {
+                Ok(b"forged".to_vec())
+            }
+        }
+        let id = digest(b"genuine");
+        assert_eq!(
+            AllLiars.get(&id),
+            Err(ContentSourceError::Integrity(id.clone()))
+        );
     }
 }

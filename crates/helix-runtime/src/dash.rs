@@ -12,10 +12,20 @@
 
 use std::collections::HashMap;
 
+/// Upper bound on segments the client will enumerate for one representation.
+/// A manifest that declares more is rejected at parse time, and segment-count
+/// math is clamped to this value, so a hostile `mediaPresentationDuration` or
+/// `SegmentList` cannot force unbounded allocation.
+pub const MAX_SEGMENTS_PER_REPRESENTATION: u64 = 100_000;
+
+/// Upper bound on representations across all adaptation sets of one manifest.
+pub const MAX_REPRESENTATIONS: usize = 1_000;
+
 /// Errors produced while parsing an MPD manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DashError {
-    /// A required element/attribute was missing or malformed.
+    /// A required element/attribute was missing or malformed, or a manifest
+    /// exceeded a resource bound.
     Malformed(String),
 }
 
@@ -106,6 +116,7 @@ impl Representation {
         let Some(t) = &self.segment_template else {
             return Vec::new();
         };
+        let count = count.min(MAX_SEGMENTS_PER_REPRESENTATION);
         let dur = self.segment_duration_secs();
         let base = if self.base_url.is_empty() {
             String::new()
@@ -119,8 +130,8 @@ impl Representation {
         };
         (0..count)
             .map(|i| {
-                let n = start + i;
-                let time = (n.saturating_sub(start)) * t.duration;
+                let n = start.saturating_add(i);
+                let time = n.saturating_sub(start).saturating_mul(t.duration);
                 Segment {
                     url: format!(
                         "{}{}",
@@ -173,9 +184,14 @@ impl Mpd {
     pub fn segment_count(&self, rep: &Representation) -> u64 {
         let dur = rep.segment_duration_secs();
         if dur <= 0.0 || self.duration_secs <= 0.0 {
-            return rep.segments.len() as u64;
+            return (rep.segments.len() as u64).min(MAX_SEGMENTS_PER_REPRESENTATION);
         }
-        (self.duration_secs / dur).ceil() as u64
+        let raw = (self.duration_secs / dur).ceil();
+        if raw.is_nan() {
+            return 0;
+        }
+        // `f64 as u64` saturates, but clamp explicitly so the bound is visible.
+        (raw.min(MAX_SEGMENTS_PER_REPRESENTATION as f64)) as u64
     }
 }
 
@@ -203,6 +219,7 @@ pub fn parse_mpd(xml: &str) -> Result<Mpd, DashError> {
     }
 
     let mut adaptation_sets = Vec::new();
+    let mut total_reps = 0usize;
     for (aset_attrs, aset_inner) in find_all(&mpd_inner, "AdaptationSet") {
         let content_type = aset_attrs
             .get("contentType")
@@ -215,6 +232,12 @@ pub fn parse_mpd(xml: &str) -> Result<Mpd, DashError> {
         }
         let mut reps = Vec::new();
         for (rep_attrs, rep_inner) in find_all(&aset_inner, "Representation") {
+            total_reps += 1;
+            if total_reps > MAX_REPRESENTATIONS {
+                return Err(DashError::Malformed(format!(
+                    "manifest exceeds {MAX_REPRESENTATIONS} representations"
+                )));
+            }
             let id = rep_attrs
                 .get("id")
                 .cloned()
@@ -235,6 +258,11 @@ pub fn parse_mpd(xml: &str) -> Result<Mpd, DashError> {
                 .or_else(|| find_element(&aset_inner, "SegmentList"))
             {
                 for (seg_attrs, seg_inner) in find_all(&list_inner, "SegmentURL") {
+                    if segments.len() as u64 >= MAX_SEGMENTS_PER_REPRESENTATION {
+                        return Err(DashError::Malformed(format!(
+                            "representation {id} exceeds {MAX_SEGMENTS_PER_REPRESENTATION} segments"
+                        )));
+                    }
                     let url = seg_attrs
                         .get("media")
                         .cloned()
@@ -742,5 +770,64 @@ mod tests {
         assert_eq!(rep.segments.len(), 2);
         assert_eq!(rep.segments[0].url, "seg1.m4s");
         assert_eq!(rep.segments[1].duration_secs, 2.0);
+    }
+
+    #[test]
+    fn segment_list_over_limit_is_rejected() {
+        let mut xml = String::from(
+            r#"<MPD mediaPresentationDuration="PT4S"><AdaptationSet contentType="video">
+              <Representation id="r" bandwidth="800000"><SegmentList>"#,
+        );
+        for _ in 0..=MAX_SEGMENTS_PER_REPRESENTATION {
+            xml.push_str(r#"<SegmentURL media="s.m4s"/>"#);
+        }
+        xml.push_str("</SegmentList></Representation></AdaptationSet></MPD>");
+        assert!(matches!(parse_mpd(&xml), Err(DashError::Malformed(_))));
+    }
+
+    #[test]
+    fn too_many_representations_is_rejected() {
+        let mut xml = String::from(r#"<MPD mediaPresentationDuration="PT4S"><AdaptationSet contentType="video">"#);
+        for i in 0..=MAX_REPRESENTATIONS {
+            xml.push_str(&format!(r#"<Representation id="r{i}" bandwidth="1"/>"#));
+        }
+        xml.push_str("</AdaptationSet></MPD>");
+        assert!(matches!(parse_mpd(&xml), Err(DashError::Malformed(_))));
+    }
+
+    #[test]
+    fn segment_count_is_clamped_for_hostile_durations() {
+        // A huge presentation over a tiny segment duration would otherwise
+        // request an enormous count.
+        let mpd = Mpd {
+            duration_secs: 1e300,
+            min_buffer_secs: 0.0,
+            adaptation_sets: vec![],
+        };
+        let rep = Representation {
+            id: "r".into(),
+            bandwidth: 1,
+            codecs: String::new(),
+            mime_type: String::new(),
+            width: 0,
+            height: 0,
+            base_url: String::new(),
+            segment_template: Some(SegmentTemplate {
+                media: "m$Number$.m4s".into(),
+                initialization: String::new(),
+                timescale: 1,
+                start_number: 1,
+                duration: 1,
+            }),
+            segments: vec![],
+        };
+        let _ = rep.templated_segments(u64::MAX);
+        assert_eq!(mpd.segment_count(&rep), MAX_SEGMENTS_PER_REPRESENTATION);
+        // Non-finite durations never produce a count.
+        let nan = Mpd {
+            duration_secs: f64::NAN,
+            ..mpd.clone()
+        };
+        assert_eq!(nan.segment_count(&rep), 0);
     }
 }

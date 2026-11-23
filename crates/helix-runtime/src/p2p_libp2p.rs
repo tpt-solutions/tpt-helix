@@ -38,7 +38,7 @@ use libp2p::{PeerId, StreamProtocol, Swarm};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::content::{digest, ContentId, ContentStore};
-use crate::p2p::{ContentSource, ContentSourceError, Provider};
+use crate::p2p::{ContentSource, ContentSourceError, Provider, ProviderKind};
 
 /// Bitswap wire request: "do you have this content id? send me the bytes."
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -240,7 +240,7 @@ async fn run(
                         if let Some((acc, _)) = pending_providers.get_mut(&id) {
                             if let Ok(GetProvidersOk::FoundProviders { providers, .. }) = res {
                                 acc.extend(providers.into_iter().map(|p| Provider {
-                                    peer: crate::p2p::PeerId(p.to_string()),
+                                    kind: ProviderKind::Network(crate::p2p::PeerId(p.to_string())),
                                     size: 0,
                                 }));
                             }
@@ -367,8 +367,10 @@ impl ContentSource for Libp2pContentSource {
         provider: &Provider,
         id: &ContentId,
     ) -> Result<Vec<u8>, ContentSourceError> {
-        let peer: PeerId = provider
-            .peer
+        let ProviderKind::Network(remote) = &provider.kind else {
+            return Err(ContentSourceError::Unavailable(id.clone()));
+        };
+        let peer: PeerId = remote
             .0
             .parse()
             .map_err(|_| ContentSourceError::Unavailable(id.clone()))?;

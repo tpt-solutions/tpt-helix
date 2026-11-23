@@ -97,12 +97,18 @@ fn apply_declarations(style: &mut Style, declarations_css: &str) {
     }
 }
 
+/// Parses a `width`/`height` value. Non-finite numbers (`NaN%`, `inf`, `1e999px`
+/// parsed as infinity) are rejected: taffy would otherwise propagate them
+/// through every descendant's size.
 fn parse_dimension(value: &str) -> Option<Dimension> {
+    fn finite(v: &str) -> Option<f32> {
+        v.trim().parse::<f32>().ok().filter(|n| n.is_finite())
+    }
     if let Some(pct) = value.strip_suffix('%') {
-        return pct.trim().parse::<f32>().ok().map(|p| percent(p / 100.0));
+        return finite(pct).map(|p| percent(p / 100.0));
     }
     if let Some(px) = value.strip_suffix("px") {
-        return px.trim().parse::<f32>().ok().map(length);
+        return finite(px).map(length);
     }
     if value == "auto" {
         return Some(auto());
@@ -114,20 +120,29 @@ fn is_element(handle: &Handle) -> bool {
     matches!(handle.data, NodeData::Element { .. })
 }
 
+/// Deepest element nesting that gets child boxes. Elements below this depth are
+/// laid out as leaves, which bounds recursion on hostile deeply nested input.
+pub const MAX_LAYOUT_DEPTH: usize = 256;
+
 fn build_node(
     tree: &mut TaffyTree<Handle>,
     handle: &Handle,
     rules: &[StyleRule],
+    depth: usize,
 ) -> taffy::TaffyResult<NodeId> {
     let style = resolve_style(&DomElement(handle.clone()), rules);
 
-    let children: Vec<NodeId> = handle
-        .children
-        .borrow()
-        .iter()
-        .filter(|c| is_element(c))
-        .map(|c| build_node(tree, c, rules))
-        .collect::<Result<_, _>>()?;
+    let children: Vec<NodeId> = if depth >= MAX_LAYOUT_DEPTH {
+        Vec::new()
+    } else {
+        handle
+            .children
+            .borrow()
+            .iter()
+            .filter(|c| is_element(c))
+            .map(|c| build_node(tree, c, rules, depth + 1))
+            .collect::<Result<_, _>>()?
+    };
 
     let node = tree.new_with_children(style, &children)?;
     tree.set_node_context(node, Some(handle.clone()))?;
@@ -145,7 +160,7 @@ pub fn build_layout_tree(dom: &RcDom, rules: &[StyleRule]) -> taffy::TaffyResult
     let root_element = find_root_element(&dom.document).expect("document has a root element");
 
     let mut tree = TaffyTree::new();
-    let root = build_node(&mut tree, &root_element, rules)?;
+    let root = build_node(&mut tree, &root_element, rules, 0)?;
     Ok(DocumentLayout { tree, root })
 }
 
@@ -360,5 +375,46 @@ mod tests {
         let second = layout.tree.layout(children[1]).expect("second cell");
         assert_eq!(first.location.x, second.location.x);
         assert!(second.location.y > first.location.y);
+    }
+
+    #[test]
+    fn non_finite_dimensions_are_rejected() {
+        assert!(parse_dimension("NaN%").is_none());
+        assert!(parse_dimension("inf px").is_none());
+        assert!(parse_dimension("infpx").is_none());
+        assert!(parse_dimension("1e999px").is_none());
+        assert!(parse_dimension("-infpx").is_none());
+        // Finite values still parse.
+        assert!(parse_dimension("50%").is_some());
+        assert!(parse_dimension("12.5px").is_some());
+        assert!(parse_dimension("auto").is_some());
+    }
+
+    #[test]
+    fn deeply_nested_markup_is_bounded_not_recursed_forever() {
+        // Far deeper than MAX_LAYOUT_DEPTH; must lay out without overflowing the
+        // stack, and the tree depth must stop at the cap.
+        let depth = MAX_LAYOUT_DEPTH * 4;
+        let mut html = String::from("<html><body>");
+        for _ in 0..depth {
+            html.push_str("<div>");
+        }
+        for _ in 0..depth {
+            html.push_str("</div>");
+        }
+        html.push_str("</body></html>");
+        let dom = parse_html(&html);
+        let mut layout = build_layout_tree(&dom, &[]).expect("build layout tree");
+        compute(&mut layout, 800.0, 600.0).expect("compute layout");
+
+        fn max_depth(tree: &TaffyTree<Handle>, node: NodeId) -> usize {
+            let kids = tree.children(node).unwrap_or_default();
+            1 + kids
+                .into_iter()
+                .map(|c| max_depth(tree, c))
+                .max()
+                .unwrap_or(0)
+        }
+        assert!(max_depth(&layout.tree, layout.root) <= MAX_LAYOUT_DEPTH + 1);
     }
 }
