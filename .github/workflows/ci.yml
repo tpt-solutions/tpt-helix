@@ -34,8 +34,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      # default-members excludes `appfront` (needs a GPU/display) and
-      # `helix-guest-example` (wasm32-only), so this exercises the core
+      # default-members excludes `tpt-helix-appfront` (needs a GPU/display) and
+      # `tpt-helix-guest-example` (wasm32-only), so this exercises the core
       # runtime + capability broker + WIT bindings cross-platform.
       - name: Build
         run: cargo build
@@ -46,7 +46,7 @@ jobs:
   # Cross-platform lint gate (Testing & QA, CI coverage): clippy with warnings
   # denied and a rustfmt check, so style/quality regressions fail CI. Runs on
   # the default workspace members (the core runtime + broker + WIT bindings +
-  # migration agent) — `appfront` (GPU/display) and `helix-guest-example`
+  # migration agent) — `tpt-helix-appfront` (GPU/display) and `tpt-helix-guest-example`
   # (wasm32-only) are excluded, mirroring the `cargo test` matrix above.
   lint:
     name: lint (clippy + rustfmt)
@@ -68,6 +68,28 @@ jobs:
       - name: Rustfmt
         run: cargo fmt --all -- --check
 
+  # The `libp2p` feature is off by default, so the `test` and `lint` jobs never
+  # compile `p2p_libp2p.rs`. This job builds that transport and runs the
+  # library tests with the feature on, so a break in the real libp2p path is
+  # caught before merge.
+  libp2p:
+    name: libp2p feature (check + lib tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check with libp2p feature
+        run: cargo check -p tpt-helix-runtime --features libp2p --all-targets
+
+      - name: Library tests with libp2p feature
+        run: cargo test -p tpt-helix-runtime --features libp2p --lib
+
   wasm-guest:
     name: build wasm guest
     runs-on: ubuntu-latest
@@ -80,13 +102,13 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
       - name: Build guest component (wasm32)
-        run: cargo build -p helix-guest-example --target wasm32-unknown-unknown
+        run: cargo build -p tpt-helix-guest-example --target wasm32-unknown-unknown
 
   # Code coverage reporting (Testing & QA, CI coverage): instruments the
   # default workspace members with `cargo-llvm-cov` and produces an lcov report
   # that is uploaded as a build artifact. The report is also uploaded to Codecov
   # when a `CODECOV_TOKEN` secret is present, so the coverage trend can be
-  # published over time. `appfront` (GPU/display) and `helix-guest-example`
+  # published over time. `tpt-helix-appfront` (GPU/display) and `tpt-helix-guest-example`
   # (wasm32-only) are excluded, matching the `cargo test` matrix.
   coverage:
     name: coverage (cargo-llvm-cov)
@@ -152,7 +174,7 @@ jobs:
       # TODO.md before claiming the Vulkan render path is confirmed on target
       # Linux GPU drivers.
       - name: Build AppFront host binary (release, window feature)
-        run: cargo build -p appfront --features window --release
+        run: cargo build -p tpt-helix-appfront --features window --release
 
       # Headless smoke test: static render pipeline (HTML→CSS→layout→display
       # list), WIT conformance, and the wasmtime "hello DOM" component all run
