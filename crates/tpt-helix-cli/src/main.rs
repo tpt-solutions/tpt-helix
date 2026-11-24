@@ -173,7 +173,11 @@ fn real_main() -> Result<ExitCode, CliError> {
         }
         Cmd::New { name } => {
             new_project(&name)?;
-            println!("created {}; try `helix render {}/index.html`", name.display(), name.display());
+            println!(
+                "created {}; try `helix render {}/index.html`",
+                name.display(),
+                name.display()
+            );
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Doctor => {

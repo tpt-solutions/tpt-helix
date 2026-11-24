@@ -38,10 +38,14 @@ fn boa_syntax_errors_surface() {
 fn boa_global_state_isolated_per_context() {
     let mut a = Context::default();
     let mut b = Context::default();
-    a.eval(boa_engine::Source::from_bytes("var x = 42")).unwrap();
+    a.eval(boa_engine::Source::from_bytes("var x = 42"))
+        .unwrap();
     // b must not see a's global
     let b_result = b.eval(boa_engine::Source::from_bytes("typeof x")).unwrap();
-    assert_eq!(b_result.as_string().unwrap().to_std_string_escaped(), "undefined");
+    assert_eq!(
+        b_result.as_string().unwrap().to_std_string_escaped(),
+        "undefined"
+    );
 }
 
 #[test]

@@ -6,8 +6,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tpt_helix_cli::{
-    Grant, all_required_ok, doctor_checks, migrate_html, migration_report,
-    migration_warnings, new_project, parse_grants, render_html, run_module, write_guest_crate,
+    Grant, all_required_ok, doctor_checks, migrate_html, migration_report, migration_warnings,
+    new_project, parse_grants, render_html, run_module, write_guest_crate,
 };
 use tpt_helix_runtime::software_raster::decode_png;
 
@@ -144,7 +144,10 @@ fn new_project_scaffolds_and_refuses_to_overwrite() {
 fn doctor_reports_cargo_and_rustc_when_run_under_cargo() {
     // `cargo test` implies cargo and rustc are present.
     let checks = doctor_checks();
-    let cargo = checks.iter().find(|c| c.name == "cargo").expect("cargo check");
+    let cargo = checks
+        .iter()
+        .find(|c| c.name == "cargo")
+        .expect("cargo check");
     assert!(cargo.ok, "{cargo:?}");
     assert!(checks.iter().all(|c| !c.hint.is_empty()));
     let _ = all_required_ok(&checks);

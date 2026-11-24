@@ -86,7 +86,10 @@ fn bench_engine_comparison(c: &mut Criterion) {
         &large_script,
         |b, script| {
             let mut ctx = boa_engine::Context::default();
-            b.iter(|| ctx.eval(boa_engine::Source::from_bytes(script.as_str())).unwrap());
+            b.iter(|| {
+                ctx.eval(boa_engine::Source::from_bytes(script.as_str()))
+                    .unwrap()
+            });
         },
     );
 

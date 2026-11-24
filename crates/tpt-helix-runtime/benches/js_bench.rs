@@ -38,9 +38,7 @@ fn bench_js(c: &mut Criterion) {
         let interp = Interpreter::new().unwrap();
         b.iter(|| {
             interp
-                .eval_to_string(
-                    "var s = 0; for (var i = 0; i < 100; i++) { s += i; } s",
-                )
+                .eval_to_string("var s = 0; for (var i = 0; i < 100; i++) { s += i; } s")
                 .unwrap()
         });
     });
@@ -76,9 +74,7 @@ fn make_large_script(n: usize) -> String {
     let mut lines = Vec::with_capacity(n + 2);
     lines.push("function compute(x) {".to_string());
     for i in 0..n {
-        lines.push(format!(
-            "  if (x === {i}) return {i} * 2;",
-        ));
+        lines.push(format!("  if (x === {i}) return {i} * 2;",));
     }
     lines.push("  return 0;".to_string());
     lines.push("}".to_string());

@@ -82,8 +82,12 @@ impl Pattern {
                 r#"<h1>Metrics</h1><canvas id="chart" width="800" height="600" data-series-0="revenue"></canvas>"#
             }
             Pattern::P4MediaPlayer => r#"<h1>Player</h1><video src="movie.mp4" controls></video>"#,
-            Pattern::P5Realtime => r#"<h1>Room</h1><div id="board" data-realtime="board" data-transport="websocket"></div>"#,
-            Pattern::P6ComplexSpa => r#"<div id="app"></div><a href="/home">Home</a><a href="/about">About</a>"#,
+            Pattern::P5Realtime => {
+                r#"<h1>Room</h1><div id="board" data-realtime="board" data-transport="websocket"></div>"#
+            }
+            Pattern::P6ComplexSpa => {
+                r#"<div id="app"></div><a href="/home">Home</a><a href="/about">About</a>"#
+            }
         }
     }
 

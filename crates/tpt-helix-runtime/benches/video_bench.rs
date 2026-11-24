@@ -22,8 +22,7 @@ fn bench_video(c: &mut Criterion) {
         .with_policy(AbrPolicy::MaximizeQuality)
         .current()
         .expect("720p representation");
-    let client =
-        DashClient::new(mpd, "video", 2_000_000).with_policy(AbrPolicy::MaximizeQuality);
+    let client = DashClient::new(mpd, "video", 2_000_000).with_policy(AbrPolicy::MaximizeQuality);
     let plan = client.segment_plan();
 
     c.bench_function("decode_720p_segments", |b| {

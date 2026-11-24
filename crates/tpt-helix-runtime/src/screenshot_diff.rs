@@ -143,11 +143,7 @@ pub fn changed_bounds(actual: &RgbaImage, expected: &RgbaImage) -> Option<(u32, 
             any = true;
         }
     }
-    if !any {
-        None
-    } else {
-        Some((x0, y0, x1, y1))
-    }
+    if !any { None } else { Some((x0, y0, x1, y1)) }
 }
 
 #[cfg(test)]

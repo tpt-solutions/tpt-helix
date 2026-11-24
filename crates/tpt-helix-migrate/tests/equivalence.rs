@@ -10,11 +10,11 @@
 //! These properties are exercised with `proptest` over randomly generated HTML
 //! trees (fuzzing), not just hand-written fixtures.
 
-use tpt_helix_migrate::transpile::{
-    DomOp, collect_text, parse_html, transpile_data_viz, transpile_form_app, transpile_media_player,
-    transpile_realtime, transpile_spa, transpile_static_site,
-};
 use proptest::prelude::*;
+use tpt_helix_migrate::transpile::{
+    DomOp, collect_text, parse_html, transpile_data_viz, transpile_form_app,
+    transpile_media_player, transpile_realtime, transpile_spa, transpile_static_site,
+};
 
 /// A synthetic HTML tree used as the migration source.
 #[derive(Debug, Clone)]

@@ -382,7 +382,10 @@ fn parse_nodes(chars: &[char], mut pos: usize, stop: Option<&str>) -> (Vec<Node>
             let (text, end) = read_text(chars, pos);
             pos = end;
             let text = collapse_whitespace(&decode_entities(&text));
-            if !text.trim_matches(|c: char| c.is_ascii_whitespace()).is_empty() {
+            if !text
+                .trim_matches(|c: char| c.is_ascii_whitespace())
+                .is_empty()
+            {
                 nodes.push(Node::Text(text));
             }
         }
@@ -507,7 +510,9 @@ fn read_raw_text(chars: &[char], start: usize, tag: &str) -> (String, usize) {
                 .zip(&close)
                 .all(|(a, b)| a.eq_ignore_ascii_case(b));
         if matches_close {
-            let end = find_char(chars, i, '>').map(|e| e + 1).unwrap_or(chars.len());
+            let end = find_char(chars, i, '>')
+                .map(|e| e + 1)
+                .unwrap_or(chars.len());
             return (chars[start..i].iter().collect(), end);
         }
         i += 1;
@@ -865,10 +870,10 @@ impl Emitter {
 
                     // P5 real-time collaboration: a container marked `data-realtime` /
                     // `data-collab`, or an `id` hinting at a board/chat/cursor/doc.
-                    let is_realtime = el
-                        .attrs
-                        .iter()
-                        .any(|(k, _)| k.eq_ignore_ascii_case("data-realtime") || k.eq_ignore_ascii_case("data-collab"));
+                    let is_realtime = el.attrs.iter().any(|(k, _)| {
+                        k.eq_ignore_ascii_case("data-realtime")
+                            || k.eq_ignore_ascii_case("data-collab")
+                    });
                     let id_val = el
                         .attrs
                         .iter()
@@ -1658,7 +1663,10 @@ mod parser_hardening_tests {
     #[test]
     fn words_stay_separated_in_text() {
         let nodes = parse_html("<p>Hello   world</p>");
-        assert_eq!(first_element(&nodes).children, vec![Node::Text("Hello world".into())]);
+        assert_eq!(
+            first_element(&nodes).children,
+            vec![Node::Text("Hello world".into())]
+        );
     }
 
     #[test]
@@ -1719,12 +1727,16 @@ mod parser_hardening_tests {
     #[test]
     fn unclosed_script_runs_to_end_of_input() {
         let nodes = parse_html("<script>var x = 1;");
-        assert_eq!(first_element(&nodes).children, vec![Node::Raw("var x = 1;".into())]);
+        assert_eq!(
+            first_element(&nodes).children,
+            vec![Node::Raw("var x = 1;".into())]
+        );
     }
 
     #[test]
     fn script_source_is_never_emitted_as_page_text() {
-        let html = "<html><body><p>Visible</p><script>document.write('hidden');</script></body></html>";
+        let html =
+            "<html><body><p>Visible</p><script>document.write('hidden');</script></body></html>";
         let site = transpile_static_site(html);
         let texts: Vec<&str> = site
             .ops
