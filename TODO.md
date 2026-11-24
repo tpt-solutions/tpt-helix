@@ -69,14 +69,14 @@ tracks execution, not design decisions.
 
 ### Content-addressed distribution (libp2p integration)
 - [x] Integrate `libp2p` for DHT + bitswap content resolution
-       — `crates/helix-runtime/src/p2p_libp2p.rs` now implements a real
+       — `crates/tpt-helix-runtime/src/p2p_libp2p.rs` now implements a real
        `Libp2pContentSource` (Kademlia DHT `provide`/`get_providers` + a
        request-response bitswap protocol with SHA-256 integrity verification on
        fetch) behind the `libp2p` cargo feature; it satisfies the same
        `ContentSource` contract as the in-process `PeerNetwork` simulation, so
        the default (headless) build still uses the simulation.
 - [x] Replace location-based asset URLs with content-addressed identifiers
-      (`crates/helix-runtime/src/content.rs`: `AssetRegistry` maps a legacy
+      (`crates/tpt-helix-runtime/src/content.rs`: `AssetRegistry` maps a legacy
       asset URL → `ContentId`, so assets are thereafter addressed by hash,
       never by location; underlying `ContentStore` still integrity-verifies)
 - [x] Implement local content cache/store for resolved immutable assets
@@ -87,14 +87,14 @@ tracks execution, not design decisions.
       `play`/`pause`/`seek`) — defined in `wit/helix.wit`, generated bindings,
       and wired through `stub` + wasmtime `Host` with capability (resolution-cap) checks
 - [ ] Integrate hardware decode paths (VA-API / Vulkan video)
-      — PARTIAL: `crates/helix-runtime/src/media_decode.rs` defines a
+      — PARTIAL: `crates/tpt-helix-runtime/src/media_decode.rs` defines a
       `DecoderBackend` trait with a working `Software` backend, but
       `HardwareBackend::decode_segment` just estimates frame counts the same
       way software does (no VA-API/Vulkan calls), and
       `platform::vulkan_video_available()` is hardcoded to `false` pending
       real wiring
 - [x] Implement DASH adaptive streaming client
-      (`crates/helix-runtime/src/dash.rs`: real MPD XML parsing (`parse_mpd`),
+      (`crates/tpt-helix-runtime/src/dash.rs`: real MPD XML parsing (`parse_mpd`),
       `SegmentTemplate`/`SegmentList`/`BaseURL` handling, ABR selection
       (`select_representation`, `AbrPolicy::MaximizeQuality/Conservative`),
       and `DashClient` segment planning, covered by unit tests)
@@ -103,7 +103,7 @@ tracks execution, not design decisions.
        models the CPU-side decoded-frame buffer (bounded in-flight queue +
        parsed manifest) for a 720p DASH plan and asserts it stays under the
        200 MB target; `benches/video_bench.rs` records the decode-throughput
-       trend (run with `cargo bench -p helix-runtime`). Note: the ≤200 MB
+       trend (run with `cargo bench -p tpt-helix-runtime`). Note: the ≤200 MB
        target assumes hardware decode (frames on the GPU); the software-only
        path on headless CI models the minimal CPU working set.
 
@@ -122,42 +122,42 @@ tracks execution, not design decisions.
 
 ### AI migration agent v0.1: JS → TS → Rust for static sites
 - [x] Integrate `tree-sitter` for JS/TS AST parsing (Stage S1: Discovery) —
-      `crates/helix-migrate/src/tree_sitter_discovery.rs` is now the reference
+      `crates/tpt-helix-migrate/src/tree_sitter_discovery.rs` is now the reference
       implementation backing `discover_ast` (JS / TS / TSX grammars) and
       satisfies the same `ApiSurfaceMap` contract as the dependency-free
       tokenizer (`discover`), which remains as a zero-cost fallback
 - [x] Build dependency graph / API-surface-map extraction from a repo + package.json
-      (`crates/helix-migrate`: `discover` → `ApiSurfaceMap` of imports/exports/functions)
+      (`crates/tpt-helix-migrate`: `discover` → `ApiSurfaceMap` of imports/exports/functions)
 - [x] Adapt `jscodeshift`-style AST-to-AST transform pipeline (Stage S2: Transpile)
-      (`crates/helix-migrate/src/js_transform.rs`: a `jscodeshift`-style
+      (`crates/tpt-helix-migrate/src/js_transform.rs`: a `jscodeshift`-style
       `Transformer`/`Rule` splice-rewrite driver over the tree-sitter CST, with a
       starter rule set mapping `function`→`fn`, `const`/`var`→`let`, and
       `console.log(..)`→`println!(..)`)
 - [x] Wire TPT Eve for high-level migration planning orchestration
-       — `crates/helix-migrate/src/eve.rs` is the deterministic offline planner:
+       — `crates/tpt-helix-migrate/src/eve.rs` is the deterministic offline planner:
        `detect_pattern` classifies HTML into P1–P4 via the transpiler's own
        `crud`/`dataviz`/`media` structure extraction, `plan`/`orchestrate` run
        the full Stage S1→S5 flow (S1 discovery, S2 transpile, S3 equivalence,
        S4 optimize suggestions, S5 deploy config + feature flags), and
        `lib.rs::migrate` wires Eve → Spark. Covered by `eve::tests`.
 - [x] Wire TPT Spark for local on-device code generation
-       — `crates/helix-migrate/src/spark.rs` is the generator:
+       — `crates/tpt-helix-migrate/src/spark.rs` is the generator:
        `generate_guest_crate` folds the transpiled `lib.rs`, Stage S4
        optimization notes, inferred `types` module (via `type_infer`), and
        Stage S5 `features` module into a componentizable `GuestCrate`
        (`Cargo.toml` + `src/lib.rs` + `helix-guest.wit`). Covered by
        `spark::tests`.
 - [x] Implement P1-pattern (static content sites) transpilation to Rust/WIT
-      (`crates/helix-migrate/src/transpile.rs`: `transpile_static_site` parses
+      (`crates/tpt-helix-migrate/src/transpile.rs`: `transpile_static_site` parses
       static HTML and emits an ordered `DomOp` list plus generated guest Rust
       source and a `helix-guest` WIT world that rebuild the DOM via the `dom`
       capability interface)
 - [x] Build `proptest`/fuzzing-based equivalence validation (Stage S3: Validate)
-      (`crates/helix-migrate/tests/equivalence.rs`: property tests over randomly
+      (`crates/tpt-helix-migrate/tests/equivalence.rs`: property tests over randomly
       generated HTML trees assert transpiled text content is preserved 1:1 and
       the generated guest source is structurally sound)
 - [x] Build screenshot-diff visual regression checking (Stage S3: Validate)
-      (`crates/helix-runtime/src/software_raster.rs` paints the static
+      (`crates/tpt-helix-runtime/src/software_raster.rs` paints the static
       display-list into an in-memory RGBA buffer; `src/screenshot_diff.rs`
       compares frames, reports a changed-pixel ratio, and renders a red
       diff image — a headless stand-in for GPU frame comparison in CI)
@@ -166,7 +166,7 @@ tracks execution, not design decisions.
 
 ### AI migration agent v1.0: 80% pattern coverage
 - [x] Implement P2 pattern support: form-based CRUD apps / dashboards / admin panels
-       — `crates/helix-migrate/src/transpile.rs` adds `transpile_form_app` (shares
+       — `crates/tpt-helix-migrate/src/transpile.rs` adds `transpile_form_app` (shares
        the P1 pipeline) plus a `CrudModel` (`FormModel`/`FormField`/`TableModel`)
        that captures form fields (`input`/`select`/`textarea` `name`/`type`), submit
        affordances, `onsubmit`/`onclick`/`onchange`/`oninput` handler ops, and
@@ -175,7 +175,7 @@ tracks execution, not design decisions.
        and `tests/equivalence.rs` adds P2 fuzz properties (text fidelity + CRUD
        model consistency). Pipeline coverage is now 2/6 patterns.
 - [x] Implement P3 pattern support: data visualization (charts, real-time metrics)
-       — `crates/helix-migrate/src/transpile.rs` adds `transpile_data_viz` (shares
+       — `crates/tpt-helix-migrate/src/transpile.rs` adds `transpile_data_viz` (shares
        the P1/P2 pipeline) plus a `DataVizModel` (`ChartModel` per `<canvas>`/`<svg>`
        mount, recording `id`, pixel `width`/`height`, and `data-*` series); `coverage.rs`
        now reports P3 as supported (the `supported()` probe requires a bound chart
@@ -183,14 +183,14 @@ tracks execution, not design decisions.
        properties (text fidelity + chart-model consistency). Pipeline coverage is now
        4/6 patterns.
 - [x] Implement P4 pattern support: media players (video streaming, audio)
-       — `crates/helix-migrate/src/transpile.rs` adds `transpile_media_player` plus a
+       — `crates/tpt-helix-migrate/src/transpile.rs` adds `transpile_media_player` plus a
        `MediaModel` (`MediaPlayerModel` per `<video>`/`<audio>`, recording `src`,
        `controls`/`autoplay`/`loop` hints, and `<source>` alternate streams) and wires
        `onplay`/`onpause`/`onended` handler ops; `coverage.rs` now reports P4 as
        supported, and `tests/equivalence.rs` adds P4 fuzz properties (text fidelity +
        media-model consistency). Pipeline coverage is now 4/6 patterns.
 - [x] Implement type inference (custom + `tsc` APIs) for JS → Rust type generation
-       — `crates/helix-migrate/src/type_infer.rs`: `infer_types` is a dependency-free
+       — `crates/tpt-helix-migrate/src/type_infer.rs`: `infer_types` is a dependency-free
        custom inferer (literal initializers, explicit TS annotations, function return
        literals → `InferredType`), `generate_rust_type_decls` emits a `pub mod inferred`
        type-alias block, and `infer_types_via_tsc` is the `tsc`-backed provider (shells
@@ -198,19 +198,19 @@ tracks execution, not design decisions.
        CI never depends on a toolchain. Pulled into the guest by `spark::generate_guest_crate`.
 - [x] Implement Stage S4 (Optimize): dead-code elimination, struct packing suggestions,
        loop parallelization
-       — `crates/helix-migrate/src/optimize.rs`: `eliminate_dead_code` keeps only
+       — `crates/tpt-helix-migrate/src/optimize.rs`: `eliminate_dead_code` keeps only
        symbols reachable from exports + named roots via a call graph; `suggest_struct_packing`
        recommends largest-first field reordering to cut padding; `suggest_parallel_loops`
        flags `for`/`while` loops for `rayon` parallelization. Consumed by `eve::orchestrate`
        and rendered into the guest by `spark`.
 - [x] Implement Stage S5 (Deploy): deployment config + feature flag generation
-       — `crates/helix-migrate/src/deploy.rs`: `generate_deploy_config` emits a
+       — `crates/tpt-helix-migrate/src/deploy.rs`: `generate_deploy_config` emits a
        `helix-deploy.toml` (`[package]` + per-target `[[target]]` with cargo triples;
        empty when no targets) and `generate_feature_flags` emits a `features` module with
        `pub const *_ENABLED` flags + `is_enabled(name)`. Consumed by `eve::orchestrate` and
        embedded by `spark`.
 - [x] Measure and report pattern coverage against the 80%-in-12-months target (G2)
-       — `crates/helix-migrate/src/coverage.rs` `CoverageReport` probes each pattern for
+       — `crates/tpt-helix-migrate/src/coverage.rs` `CoverageReport` probes each pattern for
        real transpiler support and computes the live Stage S3 equivalence pass-rate,
        with a `report_text()` summary for CI/dashboards; now 4/6 patterns (P1 + P2 + P3 +
        P4) at 100% pass-rate (66.7%), up from the 2/6 baseline — the planted P3/P4 work
@@ -228,10 +228,10 @@ tracks execution, not design decisions.
        string-concat, array-loop), large-function parse (500-branch), and
        timeout-path overhead. `benches/js_engine_compare.rs` runs the same
        workloads through Boa for comparison. Run with
-       `cargo bench -p helix-runtime --bench js_bench` or
+       `cargo bench -p tpt-helix-runtime --bench js_bench` or
        `--bench js_engine_compare`.
 - [x] Optimize JS → WIT bridge (custom, currently "to be built" per §4.2)
-       — `crates/helix-runtime/src/js_bridge.rs` installs `install_dom_bridge`,
+       — `crates/tpt-helix-runtime/src/js_bridge.rs` installs `install_dom_bridge`,
        `install_storage_bridge`, and `install_network_bridge` (global-function
        bridge to `RuntimeStub`), plus a batched DOM path (`install_dom_batch_bridge`
        + `__helix_batch_*` helpers + `__helix_batch_commit`/`clear_dom_batch`):
@@ -251,7 +251,7 @@ tracks execution, not design decisions.
        QuickJS's `Runtime::new()`) but Boa offers pure-Rust compilation
        (no C build toolchain) and higher ECMAScript conformance.
 - [x] Sandbox `eval`/dynamic-code-generation cases per Q1's proposed resolution
-      (`crates/helix-runtime/src/js.rs`: `Interpreter::eval_with_timeout` runs
+      (`crates/tpt-helix-runtime/src/js.rs`: `Interpreter::eval_with_timeout` runs
       untrusted/dynamic legacy JS in a capability-free context, aborted via a
       QuickJS interrupt handler once a per-eval deadline passes)
 
@@ -259,7 +259,7 @@ tracks execution, not design decisions.
 - [ ] Build IDE plugin(s) for TPT Lang / Rust / Zig → WASM authoring workflow
 - [ ] Build a WASM module debugger integrated with the capability broker
 - [x] Build a runtime profiler (memory, layout ops/sec, WASM execution overhead)
-       — `crates/helix-runtime/src/profiler.rs`: dependency-free `Profiler` with
+       — `crates/tpt-helix-runtime/src/profiler.rs`: dependency-free `Profiler` with
        timed spans / `time` / `count` per channel (ops, total, mean, ops/sec) and
        caller-reported memory gauges with peak tracking; disabled mode is a no-op.
        Memory values are reported by owning subsystems (no OS heap probe yet).
@@ -445,8 +445,8 @@ work outrun its test coverage.
       wgpu rasterization / backend-selection validation items in Phase 0/1
 - [x] Add performance regression benchmarks (layout ops/sec, memory footprint) gated
       against the §7 performance targets
-      (`crates/helix-runtime/benches/layout_bench.rs`: criterion harness tracking
-      layout throughput for a 1000-element tree; `crates/helix-runtime/tests/
+      (`crates/tpt-helix-runtime/benches/layout_bench.rs`: criterion harness tracking
+      layout throughput for a 1000-element tree; `crates/tpt-helix-runtime/tests/
       perf_regression.rs` enforces the §7.3 ≥60fps/1000-element budget as a
       failing CI test)
 
@@ -459,7 +459,7 @@ work outrun its test coverage.
       strings/empty keys/oversized payloads against both `RuntimeStub` and the
       wasmtime `Host`; asserts the boundary never panics)
 - [x] Add regression tests locking in sandboxed `eval` timeout/abort behavior (Q1)
-      (`crates/helix-runtime/src/js.rs`: `eval_with_timeout_aborts_infinite_loop`
+      (`crates/tpt-helix-runtime/src/js.rs`: `eval_with_timeout_aborts_infinite_loop`
       asserts an infinite loop is aborted by the interrupt handler and the
       interpreter recovers afterward; `sandboxed_interpreter_has_no_bridged_host_functions`
       asserts a bare interpreter exposes no `__helix_*` host hooks)
@@ -496,18 +496,36 @@ fix should start with a failing regression test. WIT/spec changes go in
       `namespace_prefix_must_be_delimited`)
 - [x] Implement `DomScope::Subtree` authorization and verify target ids lie inside
       the subtree (`stub.rs`: `check_dom_target`, parent index)
-- [ ] Cap libp2p frame/length allocations (`p2p_libp2p.rs`) and add a request size
-      limit to `RrConfig`
-- [ ] Verify content hashes inside `ContentSource::get`, validate `ContentId` as
+- [x] Cap libp2p frame/length allocations (`p2p_libp2p.rs`: `read_framed` rejects
+      oversize length prefixes before allocating; `MAX_REQUEST_BYTES`/`MAX_BLOCK_BYTES`
+      enforced in the codec, since libp2p's `RrConfig` has no per-message size knob;
+      tests `oversized_request_frame_is_rejected_before_allocation`,
+      `oversized_block_frame_is_rejected_before_allocation`)
+- [x] Verify content hashes inside `ContentSource::get`, validate `ContentId` as
       64 lowercase hex, and replace the `"local-cache"` magic string with an enum
-- [ ] Cap DASH segment counts and use checked arithmetic (`dash.rs`); swap the
+      (`p2p.rs`: `get` verifies every fetch; `content.rs`: `ContentId::parse`/
+      `is_well_formed`; `ProviderKind::LocalCache`; already in place, re-verified)
+- [x] Cap DASH segment counts and use checked arithmetic (`dash.rs`); swap the
       hand-rolled XML scan for `quick-xml`/`roxmltree`
-- [ ] Reject non-finite CSS values (`NaN%`, `inf`) in layout and add a recursion
+      (`dash.rs`: segment/representation caps, saturating arithmetic, and `parse_mpd`
+      on `roxmltree` with DTDs disallowed and `MAX_MPD_XML_NODES`; the scanner's
+      subtree BaseURL leak and prefix matching are fixed, tests in
+      `xml_hardening_tests`)
+- [x] Reject non-finite CSS values (`NaN%`, `inf`) in layout and add a recursion
       depth limit to `layout.rs`, `html.rs`, `css.rs`
+      (`layout.rs`: non-finite rejection and `MAX_LAYOUT_DEPTH`; `css.rs`:
+      `MAX_CSS_BLOCK_DEPTH` pre-scan and `MAX_SELECTOR_NESTING`, which fixed stack
+      overflows found by `hostile_depth_tests`; `html.rs`: walkers stop at the first
+      match and 5,000-deep markup parses, covered by `hostile_depth_tests`)
 - [ ] Cap JS bridge batch ops and per-app guest state (elements, handlers, storage);
       isolate bridge state per app and route it through the broker
-- [ ] Add hostile-input tests: DASH segment explosion, deep nesting, oversized
+      (done: `MAX_BATCH_OPS` with atomic reject as a RangeError in `js_bridge.rs`;
+      `MAX_ELEMENTS`/`MAX_CLICK_HANDLERS`/`MAX_STORAGE_*` in `stub.rs`. Open: bridge
+      state is still one thread-local, with no per-app isolation and no broker routing)
+- [x] Add hostile-input tests: DASH segment explosion, deep nesting, oversized
       frames, and unit tests for `stub.rs`/`wasm.rs`
+      (DASH explosion, HTML/CSS/layout deep nesting, oversized libp2p frames, `stub.rs`
+      guest-state caps, `wasm.rs` limiter and default-deny tests)
 
 ### WIT / migration correctness (spec §5.2, §6)
 - [ ] Reconcile `spec.txt` §5.2 WIT blocks (duplicated/garbled, undefined types,
@@ -515,7 +533,7 @@ fix should start with a failing regression test. WIT/spec changes go in
 - [ ] Add the missing DOM events (`submit`, `change`, `input`, `play`, `pause`,
       `ended`) or a generic `on-event`, plus a host->guest `dispatch` export
 - [ ] Generate the guest world from (or check it against) `helix.wit`; remove the
-      hard-coded `../helix-wit/wit` path in generated and example crates
+      hard-coded `../tpt-helix-wit/wit` path in generated and example crates
 - [ ] Make `coverage.rs` `supported()` compile the generated guest crate so the
       "6/6 patterns" figure is meaningful; add screenshot-diff equivalence (S3)
 - [ ] Make `migrate()` return diagnostics/`Result`: surface `equivalence_ok`,
@@ -532,11 +550,12 @@ fix should start with a failing regression test. WIT/spec changes go in
 ### Observability and hygiene (spec §7, §9 developer tooling)
 - [x] Wire `profiler.rs` into `wasm.rs` and `layout.rs`; fix `mean()` u32 clamp and
       allow nested spans
-- [ ] Adopt `tracing` with `RUST_LOG` and a capability-denial audit log with
-      remediation hints
+- [x] Adopt `tracing` with `RUST_LOG` and a capability-denial audit log with
+      remediation hints (`lib.rs`: `init_logging()` via `RUST_LOG`; `stub.rs`:
+      `audit_denied` on target `helix::capability`; `capability.rs`: `remediation_hint`)
 - [x] Replace `gpu.rs` readback `unwrap`/`expect` with `Result` (`GpuError`)
-- [ ] Remove the scaffold `add()`/`it_works` in `lib.rs` and "stub" wording in
-      `js_bridge.rs`/`stub.rs`
+- [x] Remove the scaffold `add()`/`it_works` in `lib.rs` and "stub" wording in
+      `js_bridge.rs`/`stub.rs` (no scaffold remained; header wording updated)
 
 ### Adoption and developer experience (spec §9 roadmap: developer tooling)
 - [ ] New `helix-cli` crate: `run`, `render` (headless PNG), `migrate --report`,
