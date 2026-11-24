@@ -19,7 +19,8 @@ use std::path::Path;
 use std::process::Command;
 
 use tpt_helix_migrate::deploy::TargetPlatform;
-use tpt_helix_migrate::eve::{Fit, OrchestratedMigration, PlanRequest};
+use tpt_helix_migrate::eve::{self, Fit, OrchestratedMigration, PlanRequest};
+use tpt_helix_migrate::generate_guest;
 use tpt_helix_migrate::spark::GuestCrate;
 use tpt_helix_runtime::capability::{Capability, DomScope, HostPattern, StorageScope};
 use tpt_helix_runtime::css::parse_stylesheet;
@@ -163,20 +164,28 @@ pub fn run_module(
 
 // --- migrate ---------------------------------------------------------------
 
-/// Runs the full S1→S5 pipeline for one HTML document (and optional JS source)
-/// and returns Eve's orchestration plus the generated guest crate.
+/// Runs the S1–S5 pipeline for one HTML document (and optional JS source).
+/// Returns Eve's orchestration always, and the generated guest crate only when a
+/// supported pattern matched. An unsupported document still gets a report.
 pub fn migrate_html(
     name: &str,
     html: &str,
     js: Option<&str>,
-) -> (OrchestratedMigration, GuestCrate) {
-    tpt_helix_migrate::migrate(&PlanRequest {
+) -> (OrchestratedMigration, Option<GuestCrate>) {
+    let req = PlanRequest {
         app_name: name.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         html: html.to_string(),
         js: js.map(str::to_string),
         targets: vec![TargetPlatform::Wasm32],
-    })
+    };
+    let migration = eve::orchestrate(&req);
+    let guest = if migration.plan.confidence == Fit::None {
+        None
+    } else {
+        Some(generate_guest(&req, &migration))
+    };
+    (migration, guest)
 }
 
 /// Human-readable migration report: pattern, per-stage plan, equivalence, and

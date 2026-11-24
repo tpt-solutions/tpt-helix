@@ -119,6 +119,7 @@ fn migration_warnings_flag_unsupported_documents() {
 fn write_guest_crate_refuses_a_non_empty_directory() {
     let scratch = Scratch::new("guest");
     let (_migration, guest) = migrate_html("guest", "<p>hi</p>", None);
+    let guest = guest.expect("a static page is supported");
     write_guest_crate(scratch.path(), &guest).expect("writes into empty dir");
     assert!(scratch.path().join("Cargo.toml").exists());
     assert!(scratch.path().join("src").join("lib.rs").exists());

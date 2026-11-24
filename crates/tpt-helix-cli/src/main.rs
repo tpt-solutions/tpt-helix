@@ -154,6 +154,11 @@ fn real_main() -> Result<ExitCode, CliError> {
                 print!("{}", migration_report(&migration));
             }
             if let Some(dir) = out {
+                let Some(guest) = guest else {
+                    return Err(CliError(
+                        "no supported pattern matched; nothing to write (see the report)".into(),
+                    ));
+                };
                 write_guest_crate(&dir, &guest)?;
                 println!("wrote guest crate to {}", dir.display());
             }
