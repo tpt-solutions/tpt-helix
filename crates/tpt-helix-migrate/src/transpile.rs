@@ -39,8 +39,12 @@ use std::fmt::Write;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
     Element(Element),
-    /// Non-whitespace text run (whitespace-only runs are dropped on parse).
+    /// Visible text run, with entities decoded and whitespace collapsed.
+    /// Whitespace-only runs are dropped on parse.
     Text(String),
+    /// Raw source text of a `<script>` or `<style>` element. It is code, not page
+    /// text, so it is never emitted as visible content.
+    Raw(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -357,6 +361,18 @@ fn parse_nodes(chars: &[char], mut pos: usize, stop: Option<&str>) -> (Vec<Node>
                 nodes.push(Node::Element(el));
                 continue;
             }
+            if is_raw_text(&el.tag) {
+                // `<script>` and `<style>` bodies are raw text: markup inside them
+                // is code, so it must not be parsed as elements.
+                let (raw, after) = read_raw_text(chars, pos, &el.tag);
+                pos = after;
+                let mut el = el;
+                if !raw.is_empty() {
+                    el.children = vec![Node::Raw(raw)];
+                }
+                nodes.push(Node::Element(el));
+                continue;
+            }
             let (children, after) = parse_nodes(chars, pos, Some(&el.tag));
             pos = after;
             let mut el = el;
@@ -365,9 +381,9 @@ fn parse_nodes(chars: &[char], mut pos: usize, stop: Option<&str>) -> (Vec<Node>
         } else {
             let (text, end) = read_text(chars, pos);
             pos = end;
-            let trimmed: String = text.split_whitespace().collect();
-            if !trimmed.is_empty() {
-                nodes.push(Node::Text(trimmed));
+            let text = collapse_whitespace(&decode_entities(&text));
+            if !text.trim_matches(|c: char| c.is_ascii_whitespace()).is_empty() {
+                nodes.push(Node::Text(text));
             }
         }
     }
@@ -453,7 +469,7 @@ fn read_attr(chars: &[char], start: usize) -> (String, String, usize) {
             while pos < chars.len() && chars[pos] != q {
                 pos += 1;
             }
-            value = chars[vbegin..pos].iter().collect();
+            value = decode_entities(&chars[vbegin..pos].iter().collect::<String>());
             if pos < chars.len() {
                 pos += 1; // closing quote
             }
@@ -467,10 +483,152 @@ fn read_attr(chars: &[char], start: usize) -> (String, String, usize) {
             {
                 pos += 1;
             }
-            value = chars[vbegin..pos].iter().collect();
+            value = decode_entities(&chars[vbegin..pos].iter().collect::<String>());
         }
     }
     (name, value, pos)
+}
+
+fn is_raw_text(tag: &str) -> bool {
+    tag.eq_ignore_ascii_case("script") || tag.eq_ignore_ascii_case("style")
+}
+
+/// Reads the body of a raw-text element starting at `start`, up to its matching
+/// `</tag` (case-insensitive). Returns the body and the position after the
+/// closing `>`. An unclosed element runs to the end of the input.
+fn read_raw_text(chars: &[char], start: usize, tag: &str) -> (String, usize) {
+    let close: Vec<char> = format!("</{tag}").chars().collect();
+    let mut i = start;
+    while i < chars.len() {
+        let matches_close = chars[i] == '<'
+            && chars.len() - i >= close.len()
+            && chars[i..i + close.len()]
+                .iter()
+                .zip(&close)
+                .all(|(a, b)| a.eq_ignore_ascii_case(b));
+        if matches_close {
+            let end = find_char(chars, i, '>').map(|e| e + 1).unwrap_or(chars.len());
+            return (chars[start..i].iter().collect(), end);
+        }
+        i += 1;
+    }
+    (chars[start..].iter().collect(), chars.len())
+}
+
+/// Decodes the character references that static content uses: the five XML
+/// named entities, `&nbsp;`, and decimal or hexadecimal numeric references.
+/// Unknown or malformed references are kept verbatim.
+pub fn decode_entities(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let after = &rest[amp + 1..];
+        match decode_reference(after) {
+            Some((ch, consumed)) => {
+                out.push(ch);
+                rest = &after[consumed..];
+            }
+            None => {
+                out.push('&');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Decodes one reference whose text follows the `&`. Returns the character and
+/// the number of bytes consumed, including the `;`.
+fn decode_reference(s: &str) -> Option<(char, usize)> {
+    // Bound the lookahead so a stray `&` never scans far into the document.
+    let semi = s.find(';').filter(|&i| i <= 32)?;
+    let name = &s[..semi];
+    let ch = if let Some(num) = name.strip_prefix('#') {
+        let code = match num.strip_prefix(['x', 'X']) {
+            Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+            None => num.parse::<u32>().ok()?,
+        };
+        char::from_u32(code)?
+    } else {
+        match name {
+            "amp" => '&',
+            "lt" => '<',
+            "gt" => '>',
+            "quot" => '"',
+            "apos" => '\'',
+            "nbsp" => '\u{a0}',
+            _ => return None,
+        }
+    };
+    Some((ch, semi + 1))
+}
+
+/// Collapses every run of ASCII whitespace to a single space, keeping one space
+/// at each edge where the run was present. Words stay separated, unlike a
+/// `split_whitespace` join. Non-breaking spaces (`&nbsp;`) are not whitespace
+/// here: they are content and must survive.
+fn collapse_whitespace(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_ws = false;
+    for c in s.chars() {
+        if c.is_ascii_whitespace() {
+            if !in_ws {
+                out.push(' ');
+            }
+            in_ws = true;
+        } else {
+            out.push(c);
+            in_ws = false;
+        }
+    }
+    out
+}
+
+/// Source text of the inline `<script>` elements that hold JavaScript or
+/// TypeScript (classic and module scripts). Data blocks such as
+/// `application/json` are skipped. External scripts (`src=`) have no body and
+/// are not returned.
+pub fn inline_scripts(html: &str) -> Vec<String> {
+    fn is_code_type(el: &Element) -> bool {
+        match el
+            .attrs
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("type"))
+            .map(|(_, v)| v.trim().to_ascii_lowercase())
+        {
+            None => true,
+            Some(t) => matches!(
+                t.as_str(),
+                "" | "text/javascript"
+                    | "application/javascript"
+                    | "module"
+                    | "text/typescript"
+                    | "application/typescript"
+            ),
+        }
+    }
+    fn walk(nodes: &[Node], out: &mut Vec<String>) {
+        for node in nodes {
+            if let Node::Element(el) = node {
+                if el.tag.eq_ignore_ascii_case("script") && is_code_type(el) {
+                    for child in &el.children {
+                        if let Node::Raw(src) = child {
+                            out.push(src.clone());
+                        }
+                    }
+                }
+                walk(&el.children, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&parse_html(html), &mut out);
+    out
 }
 
 fn read_text(chars: &[char], start: usize) -> (String, usize) {
@@ -508,6 +666,7 @@ pub fn count_nodes(nodes: &[Node]) -> (usize, usize) {
                     rec(&el.children, e, t);
                 }
                 Node::Text(_) => *t += 1,
+                Node::Raw(_) => {}
             }
         }
     }
@@ -523,6 +682,7 @@ pub fn collect_text(nodes: &[Node]) -> Vec<String> {
             match n {
                 Node::Element(el) => rec(&el.children, out),
                 Node::Text(s) => out.push(s.clone()),
+                Node::Raw(_) => {}
             }
         }
     }
@@ -916,6 +1076,9 @@ impl Emitter {
                         });
                     }
                 }
+                Node::Raw(_) => {
+                    // Raw script/style bodies are code, not content: nothing to emit.
+                }
                 Node::Text(_) => {
                     // Top-level text (no parent) — wrap in a span root.
                     let span = self.next_var();
@@ -1103,8 +1266,9 @@ mod tests {
         let (elements, texts) = count_nodes(&nodes);
         assert_eq!(elements, 6); // html, head, title, body, p, b
         assert_eq!(texts, 3); // T, Hi, there
+        // Edge spaces are kept, so the space between "Hi" and <b> survives.
         let text = collect_text(&nodes);
-        assert_eq!(text, vec!["T", "Hi", "there"]);
+        assert_eq!(text, vec!["T", "Hi ", "there"]);
     }
 
     #[test]
@@ -1477,5 +1641,112 @@ mod tests {
         assert_eq!(site.spa.root.as_deref(), Some("root"));
         assert_eq!(site.spa.routes.len(), 1);
         assert_eq!(site.spa.routes[0].path, "/settings");
+    }
+}
+
+#[cfg(test)]
+mod parser_hardening_tests {
+    use super::*;
+
+    fn first_element(nodes: &[Node]) -> &Element {
+        match &nodes[0] {
+            Node::Element(el) => el,
+            other => panic!("expected element, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn words_stay_separated_in_text() {
+        let nodes = parse_html("<p>Hello   world</p>");
+        assert_eq!(first_element(&nodes).children, vec![Node::Text("Hello world".into())]);
+    }
+
+    #[test]
+    fn mixed_content_keeps_the_spaces_around_inline_elements() {
+        let nodes = parse_html("<p>Hello <b>big</b> world</p>");
+        let kids = &first_element(&nodes).children;
+        assert_eq!(kids[0], Node::Text("Hello ".into()));
+        assert_eq!(kids[2], Node::Text(" world".into()));
+    }
+
+    #[test]
+    fn character_references_are_decoded_in_text() {
+        let nodes = parse_html("<p>Tom &amp; Jerry &lt;3 &#65;&#x42; a&nbsp;b</p>");
+        assert_eq!(
+            first_element(&nodes).children,
+            vec![Node::Text("Tom & Jerry <3 AB a\u{a0}b".into())]
+        );
+    }
+
+    #[test]
+    fn character_references_are_decoded_in_attributes() {
+        let nodes = parse_html(r#"<a href="?a=1&amp;b=2">x</a>"#);
+        assert_eq!(first_element(&nodes).attrs[0].1, "?a=1&b=2");
+    }
+
+    #[test]
+    fn unknown_or_bare_ampersands_are_kept_verbatim() {
+        assert_eq!(decode_entities("&bogus; and & done"), "&bogus; and & done");
+        assert_eq!(decode_entities("a && b;"), "a && b;");
+    }
+
+    #[test]
+    fn script_bodies_are_raw_text_not_markup() {
+        let html = r#"<div><script>if (a < b && c) { w("<p>x</p>"); }</script></div>"#;
+        let nodes = parse_html(html);
+        let script = &first_element(&nodes).children[0];
+        match script {
+            Node::Element(el) => {
+                assert_eq!(el.tag, "script");
+                assert_eq!(
+                    el.children,
+                    vec![Node::Raw(r#"if (a < b && c) { w("<p>x</p>"); }"#.into())]
+                );
+            }
+            other => panic!("expected script element, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn style_bodies_are_raw_text() {
+        let nodes = parse_html("<style>p > a { color: red }</style>");
+        assert_eq!(
+            first_element(&nodes).children,
+            vec![Node::Raw("p > a { color: red }".into())]
+        );
+    }
+
+    #[test]
+    fn unclosed_script_runs_to_end_of_input() {
+        let nodes = parse_html("<script>var x = 1;");
+        assert_eq!(first_element(&nodes).children, vec![Node::Raw("var x = 1;".into())]);
+    }
+
+    #[test]
+    fn script_source_is_never_emitted_as_page_text() {
+        let html = "<html><body><p>Visible</p><script>document.write('hidden');</script></body></html>";
+        let site = transpile_static_site(html);
+        let texts: Vec<&str> = site
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DomOp::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.contains(&"Visible"));
+        assert!(!texts.iter().any(|t| t.contains("hidden")), "{texts:?}");
+    }
+
+    #[test]
+    fn inline_scripts_returns_code_and_skips_data_blocks() {
+        let html = r#"<script>let a = 1;</script>
+            <script type="application/json">{"k": 1}</script>
+            <script type="module">export const b = 2;</script>
+            <script src="app.js"></script>"#;
+        assert_eq!(
+            inline_scripts(html),
+            vec!["let a = 1;".to_string(), "export const b = 2;".to_string()]
+        );
     }
 }
