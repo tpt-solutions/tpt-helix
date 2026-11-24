@@ -1,0 +1,16 @@
+[package]
+name = "tpt-helix-guest-example"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "Example WASM guest component for TPT Helix, exercising the generated guest bindings."
+readme = "README.md"
+keywords = ["wasm", "guest", "webassembly", "example", "helix"]
+categories = ["wasm"]
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "0.59", features = ["macros", "realloc"] }

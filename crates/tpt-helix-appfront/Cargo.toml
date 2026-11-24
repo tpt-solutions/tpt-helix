@@ -1,0 +1,30 @@
+[package]
+name = "tpt-helix-appfront"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "Native window host for TPT Helix: bridges egui widgets and the taffy layout tree to render HTML."
+readme = "README.md"
+keywords = ["gui", "egui", "rendering", "window", "helix"]
+categories = ["gui", "rendering"]
+
+# `window` pulls in `eframe` (winit + wgpu/glow) to open a real native window.
+# Leaving it off keeps the bridge + layout logic headless and cheap to build/test.
+[features]
+default = []
+window = ["dep:eframe", "dep:egui"]
+
+[dependencies]
+egui = { version = "0.29", optional = true }
+taffy = { version = "0.5", features = ["std"] }
+tpt-helix-runtime = { path = "../tpt-helix-runtime" }
+markup5ever_rcdom = "0.39.0"
+eframe = { version = "0.29", optional = true }
+
+[dev-dependencies]
+tpt-helix-runtime = { path = "../tpt-helix-runtime" }
+
+[[bin]]
+name = "appfront"
+path = "src/bin/appfront.rs"
+required-features = ["window"]

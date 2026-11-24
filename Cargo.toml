@@ -2,22 +2,24 @@
 resolver = "2"
 
 members = [
-    "crates/helix-runtime",
-    "crates/helix-wit",
-    "crates/helix-guest-example",
-    "crates/helix-migrate",
-    "crates/appfront",
+    "crates/tpt-helix-runtime",
+    "crates/tpt-helix-wit",
+    "crates/tpt-helix-guest-example",
+    "crates/tpt-helix-migrate",
+    "crates/tpt-helix-cli",
+    "crates/tpt-helix-appfront",
 ]
 
 # The guest example only builds for `wasm32-unknown-unknown` (its bindings
 # reference wasm imports), so exclude it from the default host build.
 # `appfront` is also excluded from the default build because its `window`
 # feature (eframe + wgpu) is heavy; build it explicitly with
-# `cargo build -p appfront` / `cargo run -p appfront --features window`.
+# `cargo build -p tpt-helix-appfront` / `cargo run -p tpt-helix-appfront --features window`.
 default-members = [
-    "crates/helix-runtime",
-    "crates/helix-wit",
-    "crates/helix-migrate",
+    "crates/tpt-helix-runtime",
+    "crates/tpt-helix-wit",
+    "crates/tpt-helix-migrate",
+    "crates/tpt-helix-cli",
 ]
 
 [workspace.package]

@@ -1,0 +1,18 @@
+[package]
+name = "tpt-helix-cli"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "The `helix` developer CLI: run guests, render pages to PNG, migrate apps, build guests, scaffold projects, and check the toolchain."
+readme = "README.md"
+keywords = ["cli", "webassembly", "render", "migration", "helix"]
+categories = ["command-line-utilities", "development-tools", "wasm"]
+
+[[bin]]
+name = "helix"
+path = "src/main.rs"
+
+[dependencies]
+tpt-helix-runtime = { path = "../tpt-helix-runtime" }
+tpt-helix-migrate = { path = "../tpt-helix-migrate" }
+clap = { version = "4", features = ["derive"] }

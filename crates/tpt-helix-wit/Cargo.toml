@@ -1,0 +1,14 @@
+[package]
+name = "tpt-helix-wit"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "WIT interface definitions and generated host/guest bindings for the TPT Helix capability interfaces."
+readme = "README.md"
+keywords = ["wit", "webassembly", "component-model", "bindings", "helix"]
+categories = ["wasm", "development-tools"]
+publish = false
+
+[dependencies]
+# The `macros` feature provides the `generate!` macro used in `src/lib.rs`.
+wit-bindgen = { version = "0.59", features = ["macros"] }
