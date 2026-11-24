@@ -1,4 +1,8 @@
 [toolchain]
 channel = "1.96.1"
 components = ["rustfmt", "clippy"]
+# The wasm guest build (`tpt-helix-guest-example`) needs this target. It must be
+# listed here because this file overrides the toolchain for every cargo/rustup
+# call in the repo, so a target installed only via the CI action is not visible.
+targets = ["wasm32-unknown-unknown"]
 profile = "minimal"
