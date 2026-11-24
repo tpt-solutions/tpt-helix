@@ -30,9 +30,25 @@ pub mod type_infer;
 /// generator ([`spark`]): Eve classifies the workload and runs discovery,
 /// transpile, validation, optimization, and deploy-config synthesis, then
 /// Spark folds those artifacts into a componentizable Helix guest crate.
-pub fn migrate(req: &eve::PlanRequest) -> (eve::OrchestratedMigration, spark::GuestCrate) {
+pub fn migrate(
+    req: &eve::PlanRequest,
+) -> Result<(eve::OrchestratedMigration, spark::GuestCrate), MigrationError> {
     let migration = eve::orchestrate(req);
-    let guest_crate = spark::generate_guest_crate(
+    if migration.plan.confidence == eve::Fit::None {
+        return Err(MigrationError::Unsupported);
+    }
+    let guest_crate = generate_guest(req, &migration);
+    Ok((migration, guest_crate))
+}
+
+/// Stage S5 hand-off: folds an orchestrated migration into a guest crate.
+/// [`migrate`] calls this after checking that a pattern matched; callers that
+/// want the report for an unsupported document can orchestrate on their own.
+pub fn generate_guest(
+    req: &eve::PlanRequest,
+    migration: &eve::OrchestratedMigration,
+) -> spark::GuestCrate {
+    spark::generate_guest_crate(
         &req.app_name,
         &req.version,
         &migration.site,
@@ -40,9 +56,27 @@ pub fn migrate(req: &eve::PlanRequest) -> (eve::OrchestratedMigration, spark::Gu
         &migration.feature_flags,
         req.js.as_deref(),
         &req.targets,
-    );
-    (migration, guest_crate)
+    )
 }
+
+/// Why [`migrate`] did not produce a guest crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationError {
+    /// No supported pattern matched the document; it needs manual migration.
+    Unsupported,
+}
+
+impl std::fmt::Display for MigrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MigrationError::Unsupported => {
+                f.write_str("no supported migration pattern matched; manual migration is required")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MigrationError {}
 
 pub use tree_sitter_discovery::{SourceLang, discover_ast, discover_js, discover_ts, discover_tsx};
 

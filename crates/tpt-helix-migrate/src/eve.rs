@@ -139,7 +139,19 @@ pub fn detect_pattern(html: &str) -> (Pattern, Fit) {
         }) && !site.crud.tables.is_empty();
         return (Pattern::P2FormCrud, if strong { Fit::Strong } else { Fit::Partial });
     }
-    (Pattern::P1StaticSite, Fit::Strong)
+    // Static-site fallback. A document with no elements is not a page at all, so
+    // it matches nothing. Elements without any text are a weak match. Only a page
+    // with both structure and content is a strong static-site match.
+    let (elements, texts) =
+        crate::transpile::count_nodes(&crate::transpile::parse_html(html));
+    let static_fit = if elements == 0 {
+        Fit::None
+    } else if texts == 0 {
+        Fit::Partial
+    } else {
+        Fit::Strong
+    };
+    (Pattern::P1StaticSite, static_fit)
 }
 
 /// Stage S2 transpiler selected for a detected pattern.
@@ -258,14 +270,29 @@ pub fn plan(req: &PlanRequest) -> MigrationPlan {
 /// guest crate.
 pub fn orchestrate(req: &PlanRequest) -> OrchestratedMigration {
     // Stage S1 — discovery (HTML-only best-effort when no JS is supplied).
+    // Discovery reads code, never markup: an explicit JS source, or else the
+    // inline `<script>` bodies of the document, parsed with the AST frontend.
     let surface = match &req.js {
         Some(js) => crate::discover_ast(js, crate::SourceLang::Auto),
-        None => crate::discover(&req.html),
+        None => {
+            let scripts = crate::transpile::inline_scripts(&req.html);
+            if scripts.is_empty() {
+                ApiSurfaceMap::default()
+            } else {
+                crate::discover_ast(&scripts.join("\n"), crate::SourceLang::Auto)
+            }
+        }
     };
 
     // Stage S2 — classify + transpile.
     let (detected, confidence) = detect_pattern(&req.html);
-    let site = transpiler_for(detected)(&req.html);
+    // A document no pattern supports is not transpiled at all: there is no
+    // faithful output to produce, so the stage stops with an empty site.
+    let site = if confidence == Fit::None {
+        transpile_static_site("")
+    } else {
+        transpiler_for(detected)(&req.html)
+    };
 
     // Stage S3 — equivalence validation.
     let equivalence_ok = validate_equivalence(&site);
@@ -447,5 +474,61 @@ mod tests {
         let s5 = m.plan.stages.iter().find(|s| s.stage == 5).unwrap();
         assert!(!s5.enabled);
         assert!(m.deploy_config.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod detection_hardening_tests {
+    use super::*;
+
+    #[test]
+    fn text_without_markup_is_not_a_static_site() {
+        let (_, fit) = detect_pattern("just some words");
+        assert_eq!(fit, Fit::None);
+    }
+
+    #[test]
+    fn elements_without_text_are_a_partial_static_match() {
+        let (_, fit) = detect_pattern(r#"<div class="box"></div>"#);
+        assert_eq!(fit, Fit::Partial);
+    }
+
+    #[test]
+    fn structure_with_content_is_a_strong_static_match() {
+        let (pattern, fit) = detect_pattern("<html><body><p>Hello world</p></body></html>");
+        assert_eq!(pattern, Pattern::P1StaticSite);
+        assert_eq!(fit, Fit::Strong);
+    }
+
+    #[test]
+    fn unsupported_document_stops_before_transpiling() {
+        let req = PlanRequest {
+            app_name: "odd".into(),
+            version: "0.1.0".into(),
+            html: "just some words".into(),
+            js: None,
+            targets: vec![],
+        };
+        let migration = orchestrate(&req);
+        assert!(migration.site.ops.is_empty());
+        assert!(!migration.equivalence_ok);
+        assert!(crate::migrate(&req).is_err());
+    }
+
+    #[test]
+    fn discovery_reads_inline_scripts_not_markup() {
+        let req = PlanRequest {
+            app_name: "page".into(),
+            version: "0.1.0".into(),
+            html: r#"<html><body><p>import here is text</p>
+                <script>import { go } from "./router.js";
+                export function run() {}</script></body></html>"#
+                .into(),
+            js: None,
+            targets: vec![],
+        };
+        let migration = orchestrate(&req);
+        assert_eq!(migration.surface.imports.len(), 1);
+        assert_eq!(migration.surface.imports[0].module, "./router.js");
     }
 }
