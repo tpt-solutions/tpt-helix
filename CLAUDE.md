@@ -8,18 +8,19 @@ A Rust cargo workspace (resolver 2, edition 2024) building **TPT Helix**: a
 WASM-native web platform pitched as a successor to the browser (see
 `spec.txt`, the living design spec). Five workspace members:
 
-- `helix-runtime` — the core engine: HTML/CSS/layout/text/raster/GPU
+- `tpt-helix-runtime` — the core engine: HTML/CSS/layout/text/raster/GPU
   rendering pipeline, the QuickJS/Boa legacy-JS fallback, the capability
   broker, `wasmtime` WASM hosting, content-addressed storage, and libp2p/DASH
   networking.
-- `helix-wit` — generated `wit-bindgen` host + guest bindings from
-  `crates/helix-wit/wit/helix.wit`.
-- `helix-guest-example` — a `wasm32-unknown-unknown` guest component
+- `tpt-helix-wit` — generated `wit-bindgen` host + guest bindings from
+  `crates/tpt-helix-wit/wit/helix.wit`.
+- `tpt-helix-guest-example` — a `wasm32-unknown-unknown` guest component
   exercising the generated guest bindings.
-- `helix-migrate` — the AI migration pipeline (`spec.txt` §6): tree-sitter
+- `tpt-helix-migrate` — the AI migration pipeline (`spec.txt` §6): tree-sitter
   discovery, pattern transpilers, type inference, optimize/deploy stages, and
   the Eve/Spark orchestration layer that ports JS/TS apps to Rust/WASM.
-- `appfront` — an `egui` + `taffy` native window host for the render surface.
+- `tpt-helix-appfront` — an `egui` + `taffy` native window host for the render surface.
+- `tpt-helix-cli` — the `helix` developer CLI (`run`, `render`, `migrate`, `build`, `new`, `doctor`).
 
 Most of Phase 0/1 (§9 roadmap) is implemented; check `TODO.md` for the
 current state of any given subsystem rather than assuming spec.txt describes
@@ -33,31 +34,30 @@ what's built vs. planned.
 - `TODO.md` tracks work grouped into Phases 0–4 (Foundation → Core →
   Migration → Ecosystem → Displacement), each item citing the file(s) that
   implement it. Check off tasks there as they're completed; don't add new
-  tasks that aren't traceable back to `spec.txt`. `TODO 1260713.md` is a
-  duplicate snapshot — keep both in sync if you edit one (or ask whether it
-  should just be removed).
+  tasks that aren't traceable back to `spec.txt`. The root `TODO.md` is the
+  only checklist; don't create or maintain snapshot copies of it.
 - WIT interfaces for `network`, `storage`, `dom`, and `media` are drafted in
-  `spec.txt` §5.2 and implemented in `crates/helix-wit/wit/helix.wit` — keep
+  `spec.txt` §5.2 and implemented in `crates/tpt-helix-wit/wit/helix.wit` — keep
   the two in sync; don't invent interface signatures that contradict §5.2
   without updating the spec first.
 
 ## Commands
 
 - Build everything (default members): `cargo build`
-- Build one crate: `cargo build -p helix-runtime`
+- Build one crate: `cargo build -p tpt-helix-runtime`
 - Test everything: `cargo test`
-- Single test: `cargo test -p helix-runtime <test_name>` (or `-p helix-migrate`, etc.)
-- Benchmarks: `cargo bench -p helix-runtime --bench <layout_bench|js_bench|js_engine_compare|video_bench>`
+- Single test: `cargo test -p tpt-helix-runtime <test_name>` (or `-p tpt-helix-migrate`, etc.)
+- Benchmarks: `cargo bench -p tpt-helix-runtime --bench <layout_bench|js_bench|js_engine_compare|video_bench>`
 - Lint: `cargo clippy --all-targets -- -D warnings`
 - Format check: `cargo fmt --all -- --check`
-- `appfront` and `helix-guest-example` are **not** in `default-members` (see
+- `tpt-helix-appfront` and `tpt-helix-guest-example` are **not** in `default-members` (see
   root `Cargo.toml`) — they're excluded from a bare `cargo build`/`cargo test`
-  because `appfront` needs a GPU/display (`eframe`/`wgpu`) and
-  `helix-guest-example` only builds for `wasm32-unknown-unknown`. Build/run
+  because `tpt-helix-appfront` needs a GPU/display (`eframe`/`wgpu`) and
+  `tpt-helix-guest-example` only builds for `wasm32-unknown-unknown`. Build/run
   them explicitly:
-  - `cargo build -p appfront --features window` / `cargo run -p appfront --features window`
-  - `cargo build -p helix-guest-example --target wasm32-unknown-unknown`
-- The `libp2p` cargo feature on `helix-runtime` is off by default (the
+  - `cargo build -p tpt-helix-appfront --features window` / `cargo run -p tpt-helix-appfront --features window`
+  - `cargo build -p tpt-helix-guest-example --target wasm32-unknown-unknown`
+- The `libp2p` cargo feature on `tpt-helix-runtime` is off by default (the
   default build uses an in-process `PeerNetwork` simulation of the same
   DHT/bitswap contract); enable with `--features libp2p` to pull in the real
   `libp2p` Kademlia/bitswap stack.
@@ -67,7 +67,7 @@ what's built vs. planned.
 
 ## Architecture / big picture
 
-- **Rendering pipeline** (`helix-runtime`, per `spec.txt` §3–4): HTML
+- **Rendering pipeline** (`tpt-helix-runtime`, per `spec.txt` §3–4): HTML
   (`html5ever`, `src/html.rs`) → CSS (`lightningcss` + `selectors`,
   `src/css.rs`) → layout tree (`taffy`, `src/layout.rs`) → text shaping
   (`cosmic-text` + `fontdb`, `src/text.rs`, `src/fonts.rs`) → decoded
@@ -96,7 +96,7 @@ what's built vs. planned.
 - **Media** (`src/dash.rs`, `src/media_decode.rs`): DASH manifest
   parsing/ABR selection and a decode-backend trait with a `hardware-decode`
   feature flag (off by default so CI runs headless).
-- **AI migration pipeline** (`helix-migrate`, spec §6): a staged S1–S5
+- **AI migration pipeline** (`tpt-helix-migrate`, spec §6): a staged S1–S5
   pipeline —
   - S1 Discovery: `tree_sitter_discovery.rs` (primary, full AST fidelity) and
     a dependency-free tokenizer fallback, both producing an `ApiSurfaceMap`.
@@ -115,7 +115,7 @@ what's built vs. planned.
     top-level S1→S5 entry point wiring Eve to Spark.
   - `type_infer.rs` does JS→Rust type inference feeding the transpilers.
   Don't build ad hoc migration tooling that bypasses this staged model.
-- **AppFront** (`appfront`): bridges `egui`'s widget tree with the Helix
+- **AppFront** (`tpt-helix-appfront`): bridges `egui`'s widget tree with the Helix
   `taffy` layout tree (`src/layout.rs`, `src/css.rs`, `src/egui_surface.rs`,
   `src/render.rs`) to host a native window (`src/bin/appfront.rs`, gated
   behind the `window` feature).

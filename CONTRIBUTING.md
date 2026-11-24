@@ -7,7 +7,7 @@ checklist lives in `TODO.md`.
 
 - **Spec first.** If a change alters scope or an interface, update `spec.txt`
   before the code, then reflect it in `TODO.md`. WIT interfaces in
-  `crates/helix-wit/wit/helix.wit` must agree with `spec.txt` §5.2.
+  `crates/tpt-helix-wit/wit/helix.wit` must agree with `spec.txt` §5.2.
 - **Security fixes start with a failing test.** Capability and boundary
   changes need a regression test that fails before the fix.
 - **No ambient authority.** New host APIs must go through the capability
@@ -18,12 +18,12 @@ checklist lives in `TODO.md`.
 ```sh
 cargo build                              # default members
 cargo test                               # default members
-cargo test -p helix-runtime <name>       # single test
+cargo test -p tpt-helix-runtime <name>       # single test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-`appfront` and `helix-guest-example` are not default members. Build them
+`tpt-helix-appfront` and `tpt-helix-guest-example` are not default members. Build them
 explicitly (see `CLAUDE.md`). Run the same gates CI runs before opening a PR.
 
 ## Pull requests

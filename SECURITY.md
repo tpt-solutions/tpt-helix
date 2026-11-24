@@ -15,7 +15,7 @@ disclosure timeline with the reporter before anything is published.
 
 ## Scope
 
-In scope: the capability broker (`crates/helix-runtime/src/capability.rs`),
+In scope: the capability broker (`crates/tpt-helix-runtime/src/capability.rs`),
 the wasmtime host and its limits (`wasm.rs`), the DOM/storage/network stub
 (`stub.rs`), the JS bridge (`js_bridge.rs`), and the content and P2P layers.
 
