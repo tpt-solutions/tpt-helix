@@ -27,8 +27,8 @@ const IN_FLIGHT_FRAMES: usize = 8;
 fn video_player_720p_stays_within_200mb_target() {
     let mpd = parse_mpd(MPD).expect("parse mpd");
 
-    let client = DashClient::new(mpd.clone(), "video", 2_000_000)
-        .with_policy(AbrPolicy::MaximizeQuality);
+    let client =
+        DashClient::new(mpd.clone(), "video", 2_000_000).with_policy(AbrPolicy::MaximizeQuality);
     let rep = client.current().expect("720p representation");
     assert_eq!((rep.width, rep.height), (1280, 720));
 

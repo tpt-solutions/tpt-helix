@@ -5,13 +5,13 @@
 //! stages the GPU presenter does, but paints into an in-memory RGBA buffer so
 //! it can run in CI without a display, and asserts on concrete pixel output.
 
+use image::Rgba;
 use tpt_helix_runtime::css::parse_stylesheet;
 use tpt_helix_runtime::display_list::build_display_list;
 use tpt_helix_runtime::html::parse_html;
 use tpt_helix_runtime::layout::{build_layout_tree, compute};
 use tpt_helix_runtime::screenshot_diff::{changed_bounds, compare};
 use tpt_helix_runtime::software_raster::rasterize_display_list;
-use image::Rgba;
 
 /// Build the display list for `html`/`css` at a `width`x`height` viewport.
 fn pipeline(html: &str, css: &str, width: u32, height: u32) -> Vec<u8> {
@@ -132,6 +132,12 @@ fn composed_layout_regression_localizes_to_changed_region() {
     let bounds = changed_bounds(&regr_img, &base_img).expect("change present");
     // The flex row fills the 300px viewport; two 90px columns place col-b at
     // x in [90, 180), below the 40px header (y in [40, 140)).
-    assert!(bounds.0 >= 80 && bounds.2 <= 190, "change within col-b x: {bounds:?}");
-    assert!(bounds.1 >= 40 && bounds.3 <= 150, "change within col-b y: {bounds:?}");
+    assert!(
+        bounds.0 >= 80 && bounds.2 <= 190,
+        "change within col-b x: {bounds:?}"
+    );
+    assert!(
+        bounds.1 >= 40 && bounds.3 <= 150,
+        "change within col-b y: {bounds:?}"
+    );
 }
