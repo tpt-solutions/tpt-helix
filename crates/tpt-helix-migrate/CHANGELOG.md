@@ -6,9 +6,37 @@ All notable changes to `tpt-helix-migrate` are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** `migrate()` returns `Result<(OrchestratedMigration, GuestCrate),
+  MigrationError>`. It returns `MigrationError::Unsupported` when no pattern
+  matches. The helper `generate_guest()` builds the guest crate from an
+  orchestrated migration.
 - Renamed the package from `helix-migrate` to `tpt-helix-migrate`. Rust imports
   change from `helix_migrate::` to `tpt_helix_migrate::`.
 - Added crate metadata (description, readme, keywords, categories).
+
+### Added
+- Stage S2 translates the supplied JS/TS source with `transpile_js_to_rust`. The
+  result is `OrchestratedMigration::js`, and a failure is `js_error`. Overlapping
+  rewrites are skipped, and `Auto` falls back from JavaScript to TypeScript.
+- `OrchestratedMigration::warnings()` is the single list of review conditions. It
+  now includes the JS outcome.
+
+### Fixed
+- The JS rewriter no longer splices overlapping edits, and syntax errors are
+  reported instead of being rewritten. `console.log` becomes a `println!` with a
+  format string, `var` becomes `let mut`, and single-quoted strings become
+  double-quoted.
+- Text no longer loses its spaces. Whitespace runs collapse to one space and the
+  edge spaces around inline elements are kept.
+- Character references (`&amp;`, `&lt;`, `&#65;`, `&#x42;`, `&nbsp;`) are decoded in
+  text and attribute values.
+- `<script>` and `<style>` bodies are raw text. They are not parsed as markup and
+  are never emitted as page text.
+- A document with no elements is no longer classified as a strong static site. It
+  is `Fit::None`, and the transpile stage is skipped for it.
+- Elements with no text are a partial static-site match, not a strong one.
+- Discovery (S1) reads the inline `<script>` bodies with the AST frontend, instead
+  of running the line-based scanner over the whole HTML document.
 
 ## [0.1.0]
 

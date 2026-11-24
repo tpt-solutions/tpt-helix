@@ -19,10 +19,11 @@ use crate::coverage::Pattern;
 use crate::deploy::{
     DeployConfig, FeatureFlag, TargetPlatform, generate_deploy_config, generate_feature_flags,
 };
+use crate::js_transform::{JsTranslation, JsTranspileError};
 use crate::optimize::{Suggestion, suggest_parallel_loops, suggest_struct_packing};
 use crate::transpile::{
-    DomOp, FormModel, TranspiledSite, transpile_data_viz, transpile_form_app, transpile_media_player,
-    transpile_realtime, transpile_spa, transpile_static_site,
+    DomOp, FormModel, TranspiledSite, transpile_data_viz, transpile_form_app,
+    transpile_media_player, transpile_realtime, transpile_spa, transpile_static_site,
 };
 
 /// How strongly a pattern matches a given input during planning.
@@ -94,6 +95,44 @@ pub struct OrchestratedMigration {
     pub deploy_config: String,
     /// Stage S5 feature-flag Rust module.
     pub feature_flags: String,
+    /// Stage S2 translation of the JS/TS source, when one was supplied and it
+    /// parses. A draft: see [`crate::js_transform`].
+    pub js: Option<JsTranslation>,
+    /// Why the supplied JS/TS source could not be translated.
+    pub js_error: Option<JsTranspileError>,
+}
+
+impl OrchestratedMigration {
+    /// Conditions that need a human before the migrated app is deployed. An
+    /// empty list means the migration needs no review.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        match self.plan.confidence {
+            Fit::Strong => {}
+            Fit::Partial => warnings.push(
+                "partial pattern match: review the generated guest before deploying".to_string(),
+            ),
+            Fit::None => warnings.push(
+                "no supported pattern matched: this app needs manual migration".to_string(),
+            ),
+        }
+        if !self.equivalence_ok {
+            warnings.push("equivalence check failed: do not deploy this migration".to_string());
+        }
+        if let Some(err) = &self.js_error {
+            warnings.push(format!("JavaScript was not translated: {err}"));
+        }
+        if let Some(js) = &self.js
+            && !js.needs_rust_types.is_empty()
+        {
+            warnings.push(format!(
+                "{} JavaScript function(s) need Rust parameter and return types: {}",
+                js.needs_rust_types.len(),
+                js.needs_rust_types.join(", ")
+            ));
+        }
+        warnings
+    }
 }
 
 /// Classify an HTML document into its dominant migration pattern (P1–P4).
@@ -111,11 +150,17 @@ pub fn detect_pattern(html: &str) -> (Pattern, Fit) {
             .containers
             .iter()
             .any(|c| c.id.is_some() && !c.transport.is_empty());
-        return (Pattern::P5Realtime, if strong { Fit::Strong } else { Fit::Partial });
+        return (
+            Pattern::P5Realtime,
+            if strong { Fit::Strong } else { Fit::Partial },
+        );
     }
     if site.spa.root.is_some() || !site.spa.routes.is_empty() {
         let strong = site.spa.root.is_some() && !site.spa.routes.is_empty();
-        return (Pattern::P6ComplexSpa, if strong { Fit::Strong } else { Fit::Partial });
+        return (
+            Pattern::P6ComplexSpa,
+            if strong { Fit::Strong } else { Fit::Partial },
+        );
     }
     if !site.media.players.is_empty() {
         let strong = site
@@ -123,27 +168,33 @@ pub fn detect_pattern(html: &str) -> (Pattern, Fit) {
             .players
             .iter()
             .any(|p| p.src.is_some() && p.has_controls);
-        return (Pattern::P4MediaPlayer, if strong { Fit::Strong } else { Fit::Partial });
+        return (
+            Pattern::P4MediaPlayer,
+            if strong { Fit::Strong } else { Fit::Partial },
+        );
     }
     if !site.dataviz.charts.is_empty() {
         let strong = site.dataviz.charts.iter().any(|c| {
             c.id.is_some() && c.width.is_some() && c.height.is_some() && !c.series.is_empty()
         });
-        return (Pattern::P3DataViz, if strong { Fit::Strong } else { Fit::Partial });
+        return (
+            Pattern::P3DataViz,
+            if strong { Fit::Strong } else { Fit::Partial },
+        );
     }
     if !site.crud.forms.is_empty() || !site.crud.tables.is_empty() {
         let strong = site.crud.forms.iter().any(|f| {
-            !f.fields.is_empty()
-                && f.has_submit
-                && f.fields.iter().all(|x| x.name.is_some())
+            !f.fields.is_empty() && f.has_submit && f.fields.iter().all(|x| x.name.is_some())
         }) && !site.crud.tables.is_empty();
-        return (Pattern::P2FormCrud, if strong { Fit::Strong } else { Fit::Partial });
+        return (
+            Pattern::P2FormCrud,
+            if strong { Fit::Strong } else { Fit::Partial },
+        );
     }
     // Static-site fallback. A document with no elements is not a page at all, so
     // it matches nothing. Elements without any text are a weak match. Only a page
     // with both structure and content is a strong static-site match.
-    let (elements, texts) =
-        crate::transpile::count_nodes(&crate::transpile::parse_html(html));
+    let (elements, texts) = crate::transpile::count_nodes(&crate::transpile::parse_html(html));
     let static_fit = if elements == 0 {
         Fit::None
     } else if texts == 0 {
@@ -294,6 +345,18 @@ pub fn orchestrate(req: &PlanRequest) -> OrchestratedMigration {
         transpiler_for(detected)(&req.html)
     };
 
+    // Stage S2 (JS/TS) — translate the supplied source. A failure is recorded,
+    // not hidden: the migration reports it as a warning.
+    let (js, js_error) = match req.js.as_deref() {
+        None => (None, None),
+        Some(source) => {
+            match crate::js_transform::transpile_js_to_rust(source, crate::SourceLang::Auto) {
+                Ok(translation) => (Some(translation), None),
+                Err(err) => (None, Some(err)),
+            }
+        }
+    };
+
     // Stage S3 — equivalence validation.
     let equivalence_ok = validate_equivalence(&site);
 
@@ -343,6 +406,8 @@ pub fn orchestrate(req: &PlanRequest) -> OrchestratedMigration {
         suggestions,
         deploy_config,
         feature_flags,
+        js,
+        js_error,
     }
 }
 

@@ -45,13 +45,14 @@ From Rust:
 use tpt_helix_migrate::{eve::PlanRequest, migrate};
 use tpt_helix_migrate::deploy::TargetPlatform;
 
+// `migrate` fails with `MigrationError::Unsupported` when no pattern matches.
 let (migration, guest) = migrate(&PlanRequest {
     app_name: "notes".into(),
     version: "0.1.0".into(),
     html: std::fs::read_to_string("notes.html")?,
     js: None,
     targets: vec![TargetPlatform::Wasm32],
-});
+})?;
 println!("pattern: {:?}, equivalence: {}", migration.plan.detected, migration.equivalence_ok);
 std::fs::write("guest/src/lib.rs", guest.lib_rs)?;
 ```
@@ -60,22 +61,34 @@ std::fs::write("guest/src/lib.rs", guest.lib_rs)?;
 
 This crate is under active development, and the transpiler is **not complete**.
 The open items are tracked in the workspace `TODO.md` under "Review
-Follow-ups". The main ones:
+Follow-ups".
 
-- **Pattern detection defaults to P1 with strong confidence.** A document with
-  no recognizable structure is reported as a supported static site. The CLI
-  therefore cannot tell "static site" from "not understood".
-- **The JS transpiler is not wired into S2.** `js_transform::transpile_js_to_rust`
-  exists but nothing calls it. Its output also needs fixes (valid `println!`,
-  parameter types, overlapping edits).
-- **The HTML parser is hand-written.** It does not treat `<script>` and `<style>`
-  content as raw text, and it does not decode character entities.
+Behavior you can rely on now:
+
+- **Unsupported documents are refused.** A document with no elements matches no
+  pattern (`Fit::None`). `migrate()` returns `MigrationError::Unsupported` for it,
+  and no transpile output is produced.
+- **Text keeps its words.** Whitespace runs collapse to one space, and edge spaces
+  around inline elements survive. Character references (`&amp;`, `&#65;`, and so on)
+  are decoded in text and attributes.
+- **Script and style bodies are not page text.** `<script>` and `<style>` bodies are
+  raw text. They never become visible content.
+- **Discovery reads code.** With no explicit JS source, S1 parses the inline
+  `<script>` bodies with the AST frontend.
+
+Still open:
+
+- **The JS translation is a draft.** `js_transform::transpile_js_to_rust` runs in S2
+  and its result is on `OrchestratedMigration::js`. It rewrites `function`, `const`,
+  `var`, `console.log`, and single-quoted strings. It does not infer parameter or
+  return types, so every translated function is listed in `needs_rust_types`. The
+  translated code is not yet emitted into the guest crate; the guest still gets only
+  the inferred types.
+- **The HTML parser is hand-written.** It is not `html5ever`.
 - **Equivalence (S3) is structural.** It checks that every append refers to a
   created node and that some text survived. It does not compare rendered output.
-- **Discovery (S1) for HTML uses the line-based tokenizer** on the whole
-  document. It should read inline `<script>` blocks through the AST parser.
-- **`migrate()` does not stop on a failed stage.** `Fit::None` and a failed
-  equivalence check produce warnings, not errors.
+- **The public `discover` function is still the line-based scanner.** The pipeline
+  no longer calls it, but it remains part of the API.
 
 Treat a migration as a draft until its report has no warnings and its output has
 been reviewed by hand.

@@ -536,14 +536,31 @@ fix should start with a failing regression test. WIT/spec changes go in
       hard-coded `../tpt-helix-wit/wit` path in generated and example crates
 - [ ] Make `coverage.rs` `supported()` compile the generated guest crate so the
       "6/6 patterns" figure is meaningful; add screenshot-diff equivalence (S3)
-- [ ] Make `migrate()` return diagnostics/`Result`: surface `equivalence_ok`,
+- [x] Make `migrate()` return diagnostics/`Result`: surface `equivalence_ok`,
       stop on `Fit::None`, and stop `detect_pattern` defaulting to P1/Strong
+      (`lib.rs`: `migrate()` returns `Result<_, MigrationError::Unsupported>`;
+      `eve.rs`: `detect_pattern` is `Fit::None` for documents with no elements and
+      `Fit::Partial` for elements with no text; `orchestrate` skips the transpile
+      for `Fit::None`; `equivalence_ok` is reported; tests in `detection_hardening_tests`)
 - [ ] Wire `transpile_js_to_rust` into the S2 pipeline and fix its output (valid
       `println!`, parameter types, overlapping edits, TS vs JS grammar errors)
+      (done: wired into `orchestrate` as `OrchestratedMigration::js`, with errors in
+      `js_error` and warnings from `warnings()`. Output fixes: edits apply in one forward
+      pass and overlaps are skipped; `console.log` becomes `println!` with a format
+      string; `var` becomes `let mut`; single-quoted strings become double-quoted; syntax
+      errors are reported; `Auto` falls back to TypeScript. Tests in `js_transform`.
+      Open: parameter and return types are not inferred, so every function is listed in
+      `needs_rust_types`; the translated code is not yet emitted into the guest crate)
 - [ ] Fix HTML transpiler text/whitespace joining, `<script>`/`<style>` raw text,
       entity decoding; consider `html5ever` instead of `parse_html`
+      (done: words no longer join, edge spaces kept, `Node::Raw` for script/style bodies,
+      `decode_entities` for text and attributes; tests in `parser_hardening_tests`.
+      Open: `parse_html` is still hand-written, not `html5ever`)
 - [ ] Replace id-substring pattern sniffing (`board`/`chat`/`doc`) with structural
       detection; make the `discover` line-based fallback AST-only
+      (done: detection uses parsed structure only, and S1 runs the AST frontend over
+      inline `<script>` bodies instead of the line scanner. Open: the public `discover`
+      line scanner still exists; delete it or route it through the AST frontend)
 - [ ] appfront: use `from_rgba_unmultiplied`, cache layout per size, and route egui
       input events to guest `on-click`
 

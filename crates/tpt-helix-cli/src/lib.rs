@@ -216,6 +216,17 @@ pub fn migration_report(m: &OrchestratedMigration) -> String {
         m.surface.exports.len(),
         m.surface.functions.len()
     ));
+    match (&m.js, &m.js_error) {
+        (Some(js), _) => out.push_str(&format!(
+            "javascript (S2): {} rewrite(s), {} function(s) need Rust types
+",
+            js.rewrites,
+            js.needs_rust_types.len()
+        )),
+        (None, Some(err)) => out.push_str(&format!("javascript (S2): not translated ({err})
+")),
+        (None, None) => {}
+    }
     for warning in migration_warnings(m) {
         out.push_str(&format!("warning: {warning}\n"));
     }
@@ -224,20 +235,7 @@ pub fn migration_report(m: &OrchestratedMigration) -> String {
 
 /// Conditions that need a human before the migrated app is deployed.
 pub fn migration_warnings(m: &OrchestratedMigration) -> Vec<String> {
-    let mut warnings = Vec::new();
-    match m.plan.confidence {
-        Fit::Strong => {}
-        Fit::Partial => warnings.push(
-            "partial pattern match: review the generated guest before deploying".to_string(),
-        ),
-        Fit::None => warnings.push(
-            "no supported pattern matched: this app needs manual migration".to_string(),
-        ),
-    }
-    if !m.equivalence_ok {
-        warnings.push("equivalence check failed: do not deploy this migration".to_string());
-    }
-    warnings
+    m.warnings()
 }
 
 /// Writes a generated guest crate under `dir` (`Cargo.toml`, `src/lib.rs`, and
@@ -268,7 +266,9 @@ pub fn build_guest(dir: &Path) -> Result<(), CliError> {
     if status.success() {
         Ok(())
     } else {
-        Err(err("cargo build failed (run `helix doctor` to check the toolchain)"))
+        Err(err(
+            "cargo build failed (run `helix doctor` to check the toolchain)",
+        ))
     }
 }
 
@@ -355,7 +355,9 @@ pub fn doctor_checks() -> Vec<Check> {
                 .ok()
                 .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
                 .unwrap_or_default();
-            let installed = listing.lines().any(|l| l.trim() == "wasm32-unknown-unknown");
+            let installed = listing
+                .lines()
+                .any(|l| l.trim() == "wasm32-unknown-unknown");
             (
                 installed,
                 if installed {

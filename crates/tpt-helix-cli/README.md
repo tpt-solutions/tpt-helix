@@ -59,8 +59,8 @@ equivalence, and the warnings that need a human. `--out` writes the generated
 guest crate to a new or empty directory. The command requires `--report`, `--out`,
 or both.
 
-> **Known limitation:** pattern detection currently reports a supported static
-> site for documents it does not understand. See
+> **Known limitation:** the transpiler is not complete. Unsupported documents
+> get a report and no guest crate, and `--out` refuses to write for them. See
 > `tpt-helix-migrate/README.md` for the open transpiler work.
 
 ### `helix build`
@@ -111,8 +111,9 @@ other tools can call them directly.
 ```rust
 use tpt_helix_cli::{migrate_html, migration_report};
 
-let (migration, _guest) = migrate_html("notes", "<p>hello</p>", None);
+let (migration, guest) = migrate_html("notes", "<p>hello</p>", None);
 print!("{}", migration_report(&migration));
+// `guest` is `None` when no pattern matched.
 ```
 
 ## License

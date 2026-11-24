@@ -20,4 +20,7 @@ All notable changes to `tpt-helix-cli` are recorded here. The format follows
 - A library API (`tpt_helix_cli`) so the commands can be tested and reused.
 
 ### Changed
+- `migrate` prints the JavaScript (S2) outcome and reviews translated functions that need Rust types.
 - Package renamed to `tpt-helix-cli`. The binary is still named `helix`.
+- `migrate` reports unsupported documents instead of failing. `--out` refuses to
+  write a guest crate for them, and exits non-zero.
