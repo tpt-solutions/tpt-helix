@@ -80,7 +80,13 @@ fn a_migrated_click_handler_writes_storage_in_the_runtime() {
     let target_dir = scratch_root().join("target");
     let mut build = Command::new("cargo");
     build
-        .args(["build", "--release", "--target", "wasm32-unknown-unknown", "--target-dir"])
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--target-dir",
+        ])
         .arg(&target_dir)
         .arg("--manifest-path")
         .arg(root.join("Cargo.toml"))

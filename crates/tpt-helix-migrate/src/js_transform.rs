@@ -280,7 +280,9 @@ impl Rule for StorageSetRule {
         let value = rust_str(*value, source);
         t.replace_node(
             node,
-            &format!("helix::runtime::storage::set(&{key}, {value}.as_bytes()).expect(\"storage\")"),
+            &format!(
+                "helix::runtime::storage::set(&{key}, {value}.as_bytes()).expect(\"storage\")"
+            ),
         );
     }
 }
@@ -609,7 +611,10 @@ mod dispatch_function_tests {
 
     #[test]
     fn typed_parameterless_function_is_translated_for_dispatch() {
-        let f = functions("function greet() { console.log('hi'); }", SourceLang::JavaScript);
+        let f = functions(
+            "function greet() { console.log('hi'); }",
+            SourceLang::JavaScript,
+        );
         assert_eq!(
             f,
             vec![TranslatedFunction {
@@ -621,7 +626,10 @@ mod dispatch_function_tests {
 
     #[test]
     fn functions_with_parameters_are_not_dispatchable() {
-        let f = functions("function add(a: number) { console.log(a); }", SourceLang::TypeScript);
+        let f = functions(
+            "function add(a: number) { console.log(a); }",
+            SourceLang::TypeScript,
+        );
         assert!(f.is_empty(), "{f:?}");
     }
 

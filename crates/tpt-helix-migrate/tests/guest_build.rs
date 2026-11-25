@@ -130,7 +130,8 @@ fn every_supported_pattern_generates_a_guest_that_compiles() {
 #[test]
 #[ignore = "needs the wasm32-unknown-unknown target and compiles the guest; run with --ignored"]
 fn a_click_handler_calls_its_translated_function_and_compiles() {
-    let html = r#"<html><body><h1>Counter</h1><button onclick="greet()">Say hi</button></body></html>"#;
+    let html =
+        r#"<html><body><h1>Counter</h1><button onclick="greet()">Say hi</button></body></html>"#;
     let js = "function greet() { console.log('hi'); }";
     let (migration, guest) = migrate(&PlanRequest {
         app_name: "clicker".into(),

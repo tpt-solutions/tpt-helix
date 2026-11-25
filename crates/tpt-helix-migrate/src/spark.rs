@@ -13,8 +13,8 @@
 //! wasm32-unknown-unknown`) and componentized without an external LLM.
 
 use crate::deploy::TargetPlatform;
-use crate::optimize::Suggestion;
 use crate::js_transform::TranslatedFunction;
+use crate::optimize::Suggestion;
 use crate::transpile::TranspiledSite;
 
 /// A fully generated, componentizable Helix guest guest.
@@ -319,7 +319,11 @@ mod dispatch_table_tests {
         assert!(guest.lib_rs.contains("fn greet() { println!(\"hi\"); }"));
         assert!(guest.lib_rs.contains("        0 => greet(),"));
         assert!(!guest.lib_rs.contains("missing"));
-        assert!(guest.lib_rs.contains("pub extern \"C\" fn dispatch(handler_id: u64)"));
+        assert!(
+            guest
+                .lib_rs
+                .contains("pub extern \"C\" fn dispatch(handler_id: u64)")
+        );
     }
 
     #[test]
