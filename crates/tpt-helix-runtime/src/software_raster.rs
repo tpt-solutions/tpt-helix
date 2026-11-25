@@ -70,7 +70,15 @@ pub fn rasterize_display_list(items: &[DisplayItem], width: u32, height: u32) ->
 pub fn rasterize_text(image: &mut RgbaImage, runs: &[TextRun]) {
     for run in runs {
         let (r, g, b, a) = to_bytes(run.color);
-        draw_text(image, run.x, run.y, &run.text, run.font_size, [r, g, b, a]);
+        draw_text(
+            image,
+            run.x,
+            run.y,
+            &run.text,
+            run.font_size,
+            Some(run.width),
+            [r, g, b, a],
+        );
     }
 }
 

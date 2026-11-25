@@ -269,3 +269,30 @@ fn text_inherits_color_and_font_size_from_ancestors() {
     assert_eq!(runs[0].color.g, 1.0);
     assert_eq!(runs[0].color.r, 0.0);
 }
+
+#[test]
+fn text_wraps_to_the_width_of_its_box() {
+    if !fonts_available() {
+        return;
+    }
+    let (img, runs) = pipeline_with_text(
+        r#"<html><body><div style="width: 80px"><p>alpha beta gamma delta epsilon</p></div></body></html>"#,
+        "",
+        400,
+        300,
+    );
+    assert_eq!(runs.len(), 1);
+    // Wrapped onto several lines, so taller than one 16px line, and never wider
+    // than the 80px box it sits in.
+    assert!(runs[0].height > 25.0, "expected several lines, height {}", runs[0].height);
+    assert!(runs[0].width <= 80.0 + 0.5, "width {} exceeds the box", runs[0].width);
+    // Nothing is painted outside the box horizontally.
+    let painted_right = img
+        .enumerate_pixels()
+        .filter(|(_, _, p)| p.0[3] > 0)
+        .map(|(x, _, _)| x)
+        .max()
+        .unwrap_or(0);
+    assert!(painted_right <= 81, "text painted past the box: x={painted_right}");
+}
+

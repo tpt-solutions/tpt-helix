@@ -156,6 +156,9 @@ fn walk(
 pub struct TextRun {
     pub x: f32,
     pub y: f32,
+    /// The box the text was laid out into. Lines wrap to this width.
+    pub width: f32,
+    pub height: f32,
     pub text: String,
     pub font_size: f32,
     pub color: Color,
@@ -199,6 +202,8 @@ fn collect_text(
                     out.push(TextRun {
                         x,
                         y,
+                        width: layout.size.width,
+                        height: layout.size.height,
                         text,
                         font_size: inherited.font_size,
                         color: inherited.color,

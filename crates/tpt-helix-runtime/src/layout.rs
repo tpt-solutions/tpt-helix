@@ -5,6 +5,8 @@
 //! from matched [`crate::css`] rules, then computes final box positions and
 //! sizes for a given viewport.
 
+use std::collections::HashMap;
+
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use taffy::prelude::{auto, length, percent};
 use taffy::{AvailableSpace, Dimension, Display, NodeId, Size, Style, TaffyTree};
@@ -19,6 +21,9 @@ use crate::text;
 pub struct DocumentLayout {
     pub tree: TaffyTree<Handle>,
     pub root: NodeId,
+    /// Font size of each text leaf. Text is measured against the width its box is
+    /// given during layout, so the size is needed at that point.
+    pub text_sizes: HashMap<NodeId, f32>,
 }
 
 /// Resolves the `taffy::Style` for `element` from whichever of `rules`
@@ -135,6 +140,7 @@ fn build_node(
     rules: &[StyleRule],
     depth: usize,
     inherited: &TextStyle,
+    text_sizes: &mut HashMap<NodeId, f32>,
 ) -> taffy::TaffyResult<NodeId> {
     let style = resolve_style(&DomElement(handle.clone()), rules);
     let text = text_style(&DomElement(handle.clone()), *inherited, rules);
@@ -147,7 +153,7 @@ fn build_node(
             .borrow()
             .iter()
             .filter(|c| is_rendered_element(c) || is_text_with_content(c))
-            .map(|c| build_child(tree, c, rules, depth + 1, &text))
+            .map(|c| build_child(tree, c, rules, depth + 1, &text, text_sizes))
             .collect::<Result<_, _>>()?
     };
 
@@ -164,21 +170,36 @@ fn build_child(
     rules: &[StyleRule],
     depth: usize,
     inherited: &TextStyle,
+    text_sizes: &mut HashMap<NodeId, f32>,
 ) -> taffy::TaffyResult<NodeId> {
     if is_element(handle) {
-        return build_node(tree, handle, rules, depth, inherited);
+        return build_node(tree, handle, rules, depth, inherited, text_sizes);
     }
-    let content = text_content(handle);
-    let (width, height) = text::measure_text(&content, inherited.font_size);
-    let node = tree.new_leaf(Style {
-        size: Size {
-            width: Dimension::Length(width),
-            height: Dimension::Length(height),
-        },
-        ..Style::default()
-    })?;
+    // The size is found during layout, once the box width is known.
+    let node = tree.new_leaf(Style::default())?;
     tree.set_node_context(node, Some(handle.clone()))?;
+    text_sizes.insert(node, inherited.font_size);
     Ok(node)
+}
+
+/// Sizes a text leaf. Its lines wrap to the width the layout gives it: the width
+/// it is forced to, else the available width. Other nodes have no intrinsic size.
+fn measure_node(
+    known: Size<Option<f32>>,
+    available: Size<AvailableSpace>,
+    node: NodeId,
+    context: Option<&mut Handle>,
+    text_sizes: &HashMap<NodeId, f32>,
+) -> Size<f32> {
+    let (Some(handle), Some(&font_size)) = (context, text_sizes.get(&node)) else {
+        return Size::ZERO;
+    };
+    let wrap = known.width.or(match available.width {
+        AvailableSpace::Definite(w) => Some(w),
+        _ => None,
+    });
+    let (width, height) = text::measure_wrapped(&text_content(handle), font_size, wrap);
+    Size { width, height }
 }
 
 /// Elements that never paint: document metadata and code. Their contents
@@ -220,8 +241,20 @@ pub fn build_layout_tree(dom: &RcDom, rules: &[StyleRule]) -> taffy::TaffyResult
     let root_element = find_root_element(&dom.document).expect("document has a root element");
 
     let mut tree = TaffyTree::new();
-    let root = build_node(&mut tree, &root_element, rules, 0, &TextStyle::default())?;
-    Ok(DocumentLayout { tree, root })
+    let mut text_sizes = HashMap::new();
+    let root = build_node(
+        &mut tree,
+        &root_element,
+        rules,
+        0,
+        &TextStyle::default(),
+        &mut text_sizes,
+    )?;
+    Ok(DocumentLayout {
+        tree,
+        root,
+        text_sizes,
+    })
 }
 
 /// Computes layout for `layout.tree` against a viewport of `width`x`height`
@@ -246,11 +279,15 @@ pub fn compute_profiled(
     root_style.size.width = length(width);
     root_style.size.height = length(height);
     layout.tree.set_style(layout.root, root_style)?;
-    let result = layout.tree.compute_layout(
+    let text_sizes = &layout.text_sizes;
+    let result = layout.tree.compute_layout_with_measure(
         layout.root,
         Size {
             width: AvailableSpace::Definite(width),
             height: AvailableSpace::Definite(height),
+        },
+        |known, available, node, context, _style| {
+            measure_node(known, available, node, context, text_sizes)
         },
     );
     profiler.record_memory("layout.tree.nodes", layout.tree.total_node_count() as u64);
