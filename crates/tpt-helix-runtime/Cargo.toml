@@ -43,7 +43,7 @@ rquickjs = { version = "0.6", features = ["macro"] }
 tpt-helix-wit = { path = "../tpt-helix-wit", version = "0.1.0" }
 wasmtime = "46"
 # Same version wasmtime 46 uses, so component parsing adds no new crate.
-wasmparser = "0.253"
+wasmparser = "0.263"
 sha2 = "0.10"
 url = "2"
 getrandom = "0.3"
