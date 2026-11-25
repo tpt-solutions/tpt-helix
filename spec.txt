@@ -489,7 +489,7 @@ wasm32 compile result (`--check`), and the screenshot check. The screenshot chec
 rebuilds HTML from the S2 `DomOp` list (`migrate::reconstruct`), renders it and the
 original at 800x600, and compares the PNGs with `screenshot_diff::compare`. The
 renderer paints text with the fonts installed on the machine, so the result depends on
-the host's fonts. Text does not wrap to the box width yet. Style bodies are not carried
+the host's fonts. Lines wrap to the width of their box. Style bodies are not carried
 into the guest, so a lost stylesheet shows as a difference.
 
 10.4 Signed Content-Addressed Bundles

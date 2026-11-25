@@ -70,7 +70,7 @@ All notable changes to this project are documented here. The format follows
   Before, only `background-color` in a stylesheet was painted.
 - The static renderer paints text, with the cascaded `color` and `font-size`, and sizes
   text boxes from the measured text. Before, text was never painted, and a block
-  holding only text had no height. Text does not wrap yet. Head, title, style, and
+  holding only text had no height. Lines wrap to their box width. Head, title, style, and
   script contents are no longer laid out as page text.
 - Generated guest crates embed `wit/helix.wit` and no longer reference the
   repository layout. Their `Cargo.toml` names the license explicitly, so they build

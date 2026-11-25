@@ -587,9 +587,11 @@ fix should start with a failing regression test. WIT/spec changes go in
       translated function a handler reaches, transitively, in source order
       (`spark::closure_of_calls`). Before this, a handler that called a helper broke the
       guest build. Regression tests in `spark::tests`, and `migrate --check` builds the
-      result for wasm32. Open: functions in `needs_rust_types` (untyped JavaScript, or
-      typed with an unmapped type) are still not emitted, and each is reported as a
-      warning)
+      result for wasm32. Parameterless functions whose literal return is a number or a
+      bool are typed from it (`type_infer`), so they are emitted too. Open: functions
+      with parameters, and functions that return a string, are still not emitted
+      (plain JavaScript gives no parameter types, and a string literal is `&str` in Rust
+      but `String` to the inferencer). Each is reported as a warning)
 - [ ] Fix HTML transpiler text/whitespace joining, `<script>`/`<style>` raw text,
       entity decoding; consider `html5ever` instead of `parse_html`
       (done: words no longer join, edge spaces kept, `Node::Raw` for script/style bodies,
@@ -617,8 +619,8 @@ fix should start with a failing regression test. WIT/spec changes go in
       `Buffer::draw`. `display_list::build_text_runs` collects the runs in paint order,
       each with its cascaded `color` and `font-size`, and `software_raster::rasterize_text`
       composites them over the boxes. Caveats: the output depends on the host's installed
-      fonts, which the tests check for and skip without. Text does not wrap to the box
-      width yet. Tests in `tests/render_pipeline.rs`.
+      fonts, which the tests check for and skip without. Lines wrap to the width of the
+      box they sit in (taffy measure callback). Tests in `tests/render_pipeline.rs`.
 - [x] Give text runs a height in layout. Text nodes are layout leaves sized by
       `text::measure_text`, so a block that holds only text takes the text's height and
       paints its background. Non-rendered elements (`head`, `title`, `style`, `script`,
@@ -679,7 +681,7 @@ fix should start with a failing regression test. WIT/spec changes go in
       count, compile status, and the screenshot check. `--check --out <dir>` builds the
       written crate for wasm32. `migrate::reconstruct` rebuilds HTML from the `DomOp`
       list, and the check compares it pixel by pixel with the original.
-      Limits: text is compared using the host's installed fonts, and text does not wrap yet.
+      Limits: text is compared using the host's installed fonts.
       Style bodies are not carried into the guest, so a lost stylesheet counts as a
       difference)
 - [ ] Deterministic host-call record/replay for tests and bug reports

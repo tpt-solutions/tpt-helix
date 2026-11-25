@@ -34,7 +34,7 @@ the equivalence check (S3), the warning count, and a screenshot check. `--check`
 The screenshot check renders the original page and the page the guest rebuilds, at
 800x600, and reports the share of pixels that differ. Both renders use the fonts
 installed on the machine, so compare results from the same machine. Text does not
-wrap to the box width yet. Style blocks are not carried into the guest, so a page
+wrap to the width of their box. Style blocks are not carried into the guest, so a page
 that depends on its stylesheet shows the lost styling as a difference.
 
 ## Patterns
