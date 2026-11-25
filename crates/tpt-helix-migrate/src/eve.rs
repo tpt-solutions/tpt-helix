@@ -112,9 +112,8 @@ impl OrchestratedMigration {
             Fit::Partial => warnings.push(
                 "partial pattern match: review the generated guest before deploying".to_string(),
             ),
-            Fit::None => warnings.push(
-                "no supported pattern matched: this app needs manual migration".to_string(),
-            ),
+            Fit::None => warnings
+                .push("no supported pattern matched: this app needs manual migration".to_string()),
         }
         if !self.equivalence_ok {
             warnings.push("equivalence check failed: do not deploy this migration".to_string());

@@ -368,7 +368,10 @@ impl std::fmt::Display for JsTranspileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JsTranspileError::Syntax { line } => {
-                write!(f, "JavaScript/TypeScript does not parse (first error on line {line})")
+                write!(
+                    f,
+                    "JavaScript/TypeScript does not parse (first error on line {line})"
+                )
             }
             JsTranspileError::Grammar => f.write_str("could not load the JavaScript grammar"),
         }
@@ -396,7 +399,9 @@ pub fn transpile_js_to_rust(
         parser
             .set_language(&grammar(candidate))
             .map_err(|_| JsTranspileError::Grammar)?;
-        let tree = parser.parse(source, None).ok_or(JsTranspileError::Grammar)?;
+        let tree = parser
+            .parse(source, None)
+            .ok_or(JsTranspileError::Grammar)?;
         let root = tree.root_node();
         if !root.has_error() {
             return Ok(translate(source, root));
@@ -479,7 +484,10 @@ mod type_mapping_tests {
     #[test]
     fn string_and_boolean_annotations_map_to_rust_types() {
         let t = ts("function hi(name: string, loud: boolean): string { return name; }");
-        assert_eq!(t.rust, "fn hi(name: &str, loud: bool) -> &str { return name; }");
+        assert_eq!(
+            t.rust,
+            "fn hi(name: &str, loud: bool) -> &str { return name; }"
+        );
         assert!(t.needs_rust_types.is_empty());
     }
 
@@ -514,8 +522,11 @@ mod type_mapping_tests {
 
     #[test]
     fn plain_javascript_parameters_still_need_review() {
-        let t = transpile_js_to_rust("function add(a, b) { return a + b; }", SourceLang::JavaScript)
-            .unwrap();
+        let t = transpile_js_to_rust(
+            "function add(a, b) { return a + b; }",
+            SourceLang::JavaScript,
+        )
+        .unwrap();
         assert_eq!(t.needs_rust_types, vec!["add".to_string()]);
     }
 }
@@ -530,8 +541,11 @@ mod tests {
 
     #[test]
     fn function_keyword_becomes_fn_and_is_flagged_for_types() {
-        let t = transpile_js_to_rust("function add(a, b) { return a + b; }", SourceLang::JavaScript)
-            .unwrap();
+        let t = transpile_js_to_rust(
+            "function add(a, b) { return a + b; }",
+            SourceLang::JavaScript,
+        )
+        .unwrap();
         assert_eq!(t.rust, "fn add(a, b) { return a + b; }");
         assert_eq!(t.needs_rust_types, vec!["add".to_string()]);
     }
@@ -572,7 +586,10 @@ mod tests {
 
     #[test]
     fn console_log_with_no_arguments_prints_a_blank_line() {
-        assert_eq!(rust("console.log();", SourceLang::JavaScript), "println!();");
+        assert_eq!(
+            rust("console.log();", SourceLang::JavaScript),
+            "println!();"
+        );
     }
 
     #[test]
@@ -605,7 +622,10 @@ mod tests {
     #[test]
     fn syntax_errors_are_reported_not_rewritten() {
         let err = transpile_js_to_rust("function ( {\n", SourceLang::JavaScript).unwrap_err();
-        assert!(matches!(err, JsTranspileError::Syntax { line: 1 }), "{err:?}");
+        assert!(
+            matches!(err, JsTranspileError::Syntax { line: 1 }),
+            "{err:?}"
+        );
     }
 
     #[test]

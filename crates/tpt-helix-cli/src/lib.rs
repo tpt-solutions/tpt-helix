@@ -223,8 +223,10 @@ pub fn migration_report(m: &OrchestratedMigration) -> String {
             js.rewrites,
             js.needs_rust_types.len()
         )),
-        (None, Some(err)) => out.push_str(&format!("javascript (S2): not translated ({err})
-")),
+        (None, Some(err)) => out.push_str(&format!(
+            "javascript (S2): not translated ({err})
+"
+        )),
         (None, None) => {}
     }
     for warning in migration_warnings(m) {
