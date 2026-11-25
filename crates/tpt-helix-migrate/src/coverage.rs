@@ -60,7 +60,8 @@ impl Pattern {
     }
 
     /// Representative fixture exercised to decide [`Pattern::supported`].
-    fn sample(&self) -> &'static str {
+    /// The fixture document for this pattern (public so the guest build check can reuse it).
+    pub fn sample(&self) -> &'static str {
         match self {
             Pattern::P1StaticSite => {
                 r#"<html><head><title>Docs</title></head><body><h1>Hello</h1><p>World</p></body></html>"#

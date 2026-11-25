@@ -71,17 +71,17 @@ pub enum DomOp {
     Append { parent: String, child: String },
     /// `dom::on_click(<var>, <handler>);`
     OnClick { var: String, handler: u64 },
-    /// `dom::on_submit(<var>, <handler>);` — form submit handler.
+    /// `dom::on_event(<var>, "submit", <handler>);` — form submit handler.
     OnSubmit { var: String, handler: u64 },
-    /// `dom::on_change(<var>, <handler>);` — field change handler.
+    /// `dom::on_event(<var>, "change", <handler>);` — field change handler.
     OnChange { var: String, handler: u64 },
-    /// `dom::on_input(<var>, <handler>);` — live input handler.
+    /// `dom::on_event(<var>, "input", <handler>);` — live input handler.
     OnInput { var: String, handler: u64 },
-    /// `dom::on_play(<var>, <handler>);` — media playback start (P4).
+    /// `dom::on_event(<var>, "play", <handler>);` — media playback start (P4).
     OnPlay { var: String, handler: u64 },
-    /// `dom::on_pause(<var>, <handler>);` — media playback pause (P4).
+    /// `dom::on_event(<var>, "pause", <handler>);` — media playback pause (P4).
     OnPause { var: String, handler: u64 },
-    /// `dom::on_ended(<var>, <handler>);` — media playback ended (P4).
+    /// `dom::on_event(<var>, "ended", <handler>);` — media playback ended (P4).
     OnEnded { var: String, handler: u64 },
 }
 
@@ -1135,26 +1135,32 @@ impl Emitter {
                     let _ = writeln!(s, "    dom::on_click({var}, {handler});");
                 }
                 DomOp::OnSubmit { var, handler } => {
-                    let _ = writeln!(s, "    dom::on_submit({var}, {handler});");
+                    let _ = writeln!(s, "    dom::on_event({var}, \"submit\", {handler});");
                 }
                 DomOp::OnChange { var, handler } => {
-                    let _ = writeln!(s, "    dom::on_change({var}, {handler});");
+                    let _ = writeln!(s, "    dom::on_event({var}, \"change\", {handler});");
                 }
                 DomOp::OnInput { var, handler } => {
-                    let _ = writeln!(s, "    dom::on_input({var}, {handler});");
+                    let _ = writeln!(s, "    dom::on_event({var}, \"input\", {handler});");
                 }
                 DomOp::OnPlay { var, handler } => {
-                    let _ = writeln!(s, "    dom::on_play({var}, {handler});");
+                    let _ = writeln!(s, "    dom::on_event({var}, \"play\", {handler});");
                 }
                 DomOp::OnPause { var, handler } => {
-                    let _ = writeln!(s, "    dom::on_pause({var}, {handler});");
+                    let _ = writeln!(s, "    dom::on_event({var}, \"pause\", {handler});");
                 }
                 DomOp::OnEnded { var, handler } => {
-                    let _ = writeln!(s, "    dom::on_ended({var}, {handler});");
+                    let _ = writeln!(s, "    dom::on_event({var}, \"ended\", {handler});");
                 }
             }
         }
         s.push_str("}\n");
+        // The host calls `dispatch` for each handler a DOM event triggers. The
+        // JavaScript handler bodies are not translated yet, so no handler has a
+        // body here; the export exists so the component matches the world.
+        s.push_str(
+            "\n#[unsafe(no_mangle)]\npub extern \"C\" fn dispatch(handler_id: u64) {\n    let _ = handler_id;\n}\n",
+        );
         s
     }
 }
@@ -1184,6 +1190,7 @@ fn transpile_html(html: &str) -> TranspiledSite {
     let wit_world = r#"world helix-guest {
     import dom;
     export run: func();
+    export dispatch: func(handler-id: u64);
 }
 "#
     .to_string();
@@ -1418,8 +1425,10 @@ mod tests {
     fn form_app_generates_handler_wiring_in_rust() {
         let html = r#"<form onsubmit="save()"><input name="x" onchange="upd()" /></form>"#;
         let site = transpile_form_app(html);
-        assert!(site.rust_source.contains("dom::on_submit("));
-        assert!(site.rust_source.contains("dom::on_change("));
+        assert!(site.rust_source.contains("dom::on_event("));
+        assert!(site.rust_source.contains("\"submit\""));
+        assert!(!site.rust_source.contains("dom::on_submit("));
+        assert!(site.rust_source.contains("dom::on_event("));
         // Handlers must not leak as raw attributes.
         assert!(
             !site
@@ -1564,9 +1573,12 @@ mod tests {
     fn media_player_wires_playback_event_handlers() {
         let html = r#"<audio src="podcast.mp3" controls onplay="started()" onpause="paused()" onended="done()"></audio>"#;
         let site = transpile_media_player(html);
-        assert!(site.rust_source.contains("dom::on_play("));
-        assert!(site.rust_source.contains("dom::on_pause("));
-        assert!(site.rust_source.contains("dom::on_ended("));
+        assert!(site.rust_source.contains("dom::on_event("));
+        assert!(site.rust_source.contains("\"play\""));
+        assert!(site.rust_source.contains("dom::on_event("));
+        assert!(site.rust_source.contains("\"pause\""));
+        assert!(site.rust_source.contains("dom::on_event("));
+        assert!(site.rust_source.contains("\"ended\""));
         // Playback handlers must not leak as raw attributes.
         assert!(!site.rust_source.contains("set_attribute(el0, &\"onplay\""));
         assert_eq!(site.media.players[0].kind, "audio");

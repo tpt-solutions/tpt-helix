@@ -15,13 +15,22 @@ All notable changes to `tpt-helix-migrate` are recorded here. The format follows
 - Added crate metadata (description, readme, keywords, categories).
 
 ### Added
+- Generated guests export `dispatch`, required by the world. Handler bodies are
+  empty until JS handlers are translated.
 - Stage S2 translates the supplied JS/TS source with `transpile_js_to_rust`. The
   result is `OrchestratedMigration::js`, and a failure is `js_error`. Overlapping
   rewrites are skipped, and `Auto` falls back from JavaScript to TypeScript.
+- TypeScript annotations are mapped to Rust types in translated functions and
+  declarations. A function with an unmapped or missing type is listed in
+  `needs_rust_types`.
 - `OrchestratedMigration::warnings()` is the single list of review conditions. It
   now includes the JS outcome.
 
 ### Fixed
+- Generated guests called `dom::on_submit`, `on_change`, `on_input`, `on_play`,
+  `on_pause`, and `on_ended`, which the WIT interface did not define. They now call
+  `dom::on_event` with the event name. A new integration test compile-checks every
+  pattern's generated guest for wasm32 (`tests/guest_build.rs`, run in CI).
 - The JS rewriter no longer splices overlapping edits, and syntax errors are
   reported instead of being rewritten. `console.log` becomes a `println!` with a
   format string, `var` becomes `let mut`, and single-quoted strings become

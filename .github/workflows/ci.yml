@@ -103,6 +103,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Build guest component (wasm32)
         run: cargo build -p tpt-helix-guest-example --target wasm32-unknown-unknown
+      # Every guest the migration pipeline generates must compile for wasm32.
+      - name: Compile-check generated guests
+        run: cargo test -p tpt-helix-migrate --test guest_build -- --ignored --nocapture
 
   # Code coverage reporting (Testing & QA, CI coverage): instruments the
   # default workspace members with `cargo-llvm-cov` and produces an lcov report
