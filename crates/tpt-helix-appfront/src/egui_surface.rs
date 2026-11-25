@@ -5,23 +5,27 @@
 //! the native UI shell (window chrome in `egui`) and bridges its central panel
 //! — the Helix render surface — to the `taffy` layout tree produced by
 //! [`crate::HelixDocument`].
+//!
+//! The page is either a static HTML document, or the DOM of a running guest
+//! ([`crate::GuestSurface`]). A click on a guest page dispatches the guest's
+//! handlers, and the page is refreshed from the guest's DOM afterwards.
 
 use eframe::egui;
 
+use crate::guest::GuestSurface;
 use crate::layout::{FrameCache, HelixDocument, HitBox};
 use crate::render::RenderItem;
 
 /// A primary-button click on the render surface.
 ///
 /// `node` is the pre-order index of the DOM node under the pointer (the
-/// innermost box), and `tag` its tag name. The host maps this to whatever it
-/// dispatches to; AppFront itself has no guest handler table.
+/// innermost box), and `tag` its tag name. `element` is the guest element under the
+/// pointer, which the guest surface uses to dispatch handlers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClickEvent {
     pub node: usize,
     pub tag: String,
-    /// The guest element under the pointer (its `data-helix-id`). The host looks up
-    /// that element's handlers in the runtime and dispatches them.
+    /// The guest element under the pointer (its `data-helix-id`).
     pub element: Option<u64>,
     /// Pointer position in surface coordinates (origin at the render surface's top-left).
     pub x: f32,
@@ -33,14 +37,27 @@ pub struct AppFront {
     doc: HelixDocument,
     cache: FrameCache,
     on_click: Option<Box<dyn FnMut(ClickEvent)>>,
+    guest: Option<GuestSurface>,
 }
 
 impl AppFront {
+    /// A window showing the static HTML `source`.
     pub fn new(_cc: &eframe::CreationContext<'_>, source: String) -> Self {
         AppFront {
             doc: HelixDocument::parse(&source),
             cache: FrameCache::new(),
             on_click: None,
+            guest: None,
+        }
+    }
+
+    /// A window showing a running guest's page. Clicks dispatch the guest's handlers.
+    pub fn with_guest(guest: GuestSurface) -> Self {
+        AppFront {
+            doc: HelixDocument::parse(&guest.html()),
+            cache: FrameCache::new(),
+            on_click: None,
+            guest: Some(guest),
         }
     }
 
@@ -48,6 +65,28 @@ impl AppFront {
     pub fn on_click(mut self, handler: impl FnMut(ClickEvent) + 'static) -> Self {
         self.on_click = Some(Box::new(handler));
         self
+    }
+
+    /// Handles one click: the host callback first, then the guest, whose handlers
+    /// may change its DOM. The page is re-read when they do.
+    fn handle_click(&mut self, click: ClickEvent) {
+        if let Some(handler) = self.on_click.as_mut() {
+            handler(click.clone());
+        }
+        let Some(guest) = self.guest.as_mut() else {
+            return;
+        };
+        let Some(element) = click.element else {
+            return;
+        };
+        match guest.click(element) {
+            Ok(Some(html)) => {
+                self.doc = HelixDocument::parse(&html);
+                self.cache = FrameCache::new();
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("guest handler failed: {e}"),
+        }
     }
 }
 
@@ -72,6 +111,7 @@ impl eframe::App for AppFront {
         // The central panel is the Helix render surface. Its available size
         // drives the `taffy` layout, and the result is painted with the `egui`
         // painter — the actual bridge between the two trees.
+        let mut clicked: Option<ClickEvent> = None;
         egui::CentralPanel::default().show(ctx, |ui| {
             // Layout is in surface coordinates; the panel sits below the header,
             // so every item is painted relative to the panel's top-left corner.
@@ -108,20 +148,24 @@ impl eframe::App for AppFront {
                 }
             }
 
-            // Primary clicks inside the surface go to the innermost box under
-            // the pointer.
-            if let Some(handler) = self.on_click.as_mut()
-                && ui.input(|i| i.pointer.primary_clicked())
+            // Primary clicks inside the surface go to the innermost box under the
+            // pointer. The click is handled after the panel, since handling it may
+            // replace the page this frame was laid out from.
+            if ui.input(|i| i.pointer.primary_clicked())
                 && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
                 && panel.contains(pos)
             {
                 let local = pos - origin;
                 if let Some(hit) = frame.hit_test(local.x, local.y) {
                     let element = frame.element_at(local.x, local.y);
-                    handler(hit_to_click(hit, element, local.x, local.y));
+                    clicked = Some(hit_to_click(hit, element, local.x, local.y));
                 }
             }
         });
+
+        if let Some(click) = clicked {
+            self.handle_click(click);
+        }
     }
 }
 
@@ -139,5 +183,15 @@ pub fn run(source: String) -> eframe::Result<()> {
         "TPT AppFront",
         options,
         Box::new(|cc| Ok(Box::new(AppFront::new(cc, source)))),
+    )
+}
+
+/// Opens the native AppFront window showing a running guest's page.
+pub fn run_guest(guest: GuestSurface) -> eframe::Result<()> {
+    let options = eframe::NativeOptions::default();
+    eframe::run_native(
+        "TPT AppFront",
+        options,
+        Box::new(move |_cc| Ok(Box::new(AppFront::with_guest(guest)))),
     )
 }

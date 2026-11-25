@@ -16,11 +16,13 @@
 //! opens a real native window and paints the surface with `egui`.
 
 pub mod css;
+pub mod guest;
 pub mod layout;
 pub mod render;
 
 #[cfg(feature = "window")]
 pub mod egui_surface;
 
+pub use guest::GuestSurface;
 pub use layout::{Frame, FrameCache, HelixDocument, HitBox};
 pub use render::{RectItem, RenderItem, TextItem};
