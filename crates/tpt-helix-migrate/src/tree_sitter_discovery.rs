@@ -376,9 +376,9 @@ mod tests {
     }
 
     #[test]
-    fn ast_matches_tokenizer_on_clean_source() {
-        // On comment/string-free source the two extractors should agree on the
-        // import module set (the reference AST impl is the source of truth).
+    fn js_and_ts_grammars_agree_on_clean_source() {
+        // On comment/string-free source the JS and TS grammars should agree on the
+        // import module set.
         let src = r#"
             import a from "mod-a";
             import { b, c } from "mod-b";
@@ -387,7 +387,7 @@ mod tests {
             function local() {}
         "#;
         let ast = discover_ast(src, SourceLang::JavaScript);
-        let tok = crate::discover(src);
+        let tok = discover_ts(src);
         let ast_mods: std::collections::BTreeSet<&str> =
             ast.imports.iter().map(|i| i.module.as_str()).collect();
         let tok_mods: std::collections::BTreeSet<&str> =

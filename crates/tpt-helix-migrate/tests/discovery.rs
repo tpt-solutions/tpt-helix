@@ -1,8 +1,8 @@
 //! Parity + fidelity tests for the Stage S1 discovery extractors.
 //!
-//! The tree-sitter backend ([`tpt_helix_migrate::discover_ast`]) must satisfy the
-//! same [`tpt_helix_migrate::ApiSurfaceMap`] contract as the dependency-free
-//! tokenizer ([`tpt_helix_migrate::discover`]); these tests pin that down.
+//! [`tpt_helix_migrate::discover`] runs the tree-sitter backend
+//! ([`tpt_helix_migrate::discover_ast`]); these tests pin the
+//! [`tpt_helix_migrate::ApiSurfaceMap`] contract and the grammar choice.
 
 use tpt_helix_migrate::{ApiSurfaceMap, SourceLang, discover, discover_js, discover_ts};
 
@@ -21,10 +21,16 @@ const SAMPLE: &str = r#"
 "#;
 
 #[test]
-fn ast_matches_tokenizer_on_static_sample() {
-    let tok = discover(SAMPLE);
-    let ast = discover_js(SAMPLE);
-    assert_eq!(tok, ast, "AST extractor diverged from tokenizer contract");
+fn discover_delegates_to_the_ast_frontend() {
+    // `discover` is the public S1 entry point and runs the AST frontend (TS
+    // grammar). The JS and TS grammars must agree on plain JavaScript.
+    let via_discover = discover(SAMPLE);
+    assert_eq!(via_discover, discover_ts(SAMPLE));
+    assert_eq!(
+        via_discover,
+        discover_js(SAMPLE),
+        "JS and TS grammars diverged"
+    );
 }
 
 #[test]
