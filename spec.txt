@@ -484,10 +484,13 @@ generated guest can be trusted. Decision: the report records four independent fa
 pattern fit, equivalence (S3), the count of warnings, and whether the generated crate
 compiles for wasm32 (checked only when requested). It does not combine them into a
 score, because a number would hide which check failed.
-Status: the report fields are implemented. The compile check runs in the CI test
-`guest_build`. The screenshot diff is not built. Its recommended design is to rebuild
-HTML from the S2 `DomOp` list, render both documents with `render_html`, and compare
-the PNGs pixel by pixel. That needs a `DomOp` to HTML mapping for every op kind.
+Status: implemented. The fields are the pattern, equivalence (S3), warning count, the
+wasm32 compile result (`--check`), and the screenshot check. The screenshot check
+rebuilds HTML from the S2 `DomOp` list (`migrate::reconstruct`), renders it and the
+original at 800x600, and compares the PNGs with `screenshot_diff::compare`. Two limits
+follow from the static renderer and are not hidden by the check. It paints rectangles
+only, so text does not appear in either render. Style bodies are not carried into the
+guest, so a lost stylesheet shows as a difference.
 
 10.4 Signed Content-Addressed Bundles
 Problem: an app must be verifiable offline, with no registry or network. Decision:

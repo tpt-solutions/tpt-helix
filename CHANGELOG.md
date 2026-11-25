@@ -46,6 +46,8 @@ All notable changes to this project are documented here. The format follows
   content-addressed app bundles that verify offline against a trusted key (spec §10.4).
 - `helix migrate --confidence` and `--check`: a confidence block, and a wasm32 build of
   the written crate (spec §10.3).
+- `migrate::reconstruct`: rebuilds the HTML a guest produces from its DOM ops. The
+  confidence block's screenshot check compares it pixel by pixel with the original.
 - `spec.txt` §10 specifies the seven innovation candidates. Each entry records the
   recommended decision and its status.
 
@@ -61,6 +63,11 @@ All notable changes to this project are documented here. The format follows
   buffer. The `install_*` functions take a session, and `BridgeSession::for_app`
   routes calls through the capability broker. Breaking change for direct callers.
 - `spec.txt` §5.2 carries a verbatim copy of `helix.wit`, checked by a test.
+- Generated guest crates include every translated function a handler reaches,
+  transitively. A handler that called a helper used to produce a guest that did not
+  compile.
+- The static renderer paints `background:` shorthands and inline `style` attributes.
+  Before, only `background-color` in a stylesheet was painted.
 - Generated guest crates embed `wit/helix.wit` and no longer reference the
   repository layout. Their `Cargo.toml` names the license explicitly, so they build
   outside a workspace. This was a defect: `migrate --check` found it.

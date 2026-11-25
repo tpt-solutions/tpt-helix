@@ -583,9 +583,13 @@ fix should start with a failing regression test. WIT/spec changes go in
       errors are reported; `Auto` falls back to TypeScript. Tests in `js_transform`.
       TypeScript annotations map to Rust types (`number`→`f64`, `string`→`&str`,
       `boolean`→`bool`, `T[]`→`Vec<T>`); a function with an unmapped or missing type is
-      listed in `needs_rust_types`. Open: plain JavaScript carries no types, so its
-      functions are always listed; the translated code is not yet emitted into the
-      guest crate)
+      listed in `needs_rust_types`. Emission: the guest crate now includes every
+      translated function a handler reaches, transitively, in source order
+      (`spark::closure_of_calls`). Before this, a handler that called a helper broke the
+      guest build. Regression tests in `spark::tests`, and `migrate --check` builds the
+      result for wasm32. Open: functions in `needs_rust_types` (untyped JavaScript, or
+      typed with an unmapped type) are still not emitted, and each is reported as a
+      warning)
 - [ ] Fix HTML transpiler text/whitespace joining, `<script>`/`<style>` raw text,
       entity decoding; consider `html5ever` instead of `parse_html`
       (done: words no longer join, edge spaces kept, `Node::Raw` for script/style bodies,
@@ -607,6 +611,14 @@ fix should start with a failing regression test. WIT/spec changes go in
       premultiplied bug was latent. Open: AppFront has no guest handle, so the host must
       map `ClickEvent::node` to a runtime element and dispatch its handler. That mapping
       does not exist yet. `cargo check -p tpt-helix-appfront --features window` passes; the window itself has not been run on a display)
+
+### Render pipeline gaps (found by the migration screenshot check)
+- [ ] Paint text. The display list emits rectangles only, so `helix render` and the
+      screenshot check never show text. Needs glyph output from `text.rs`/`cosmic-text`
+      into `display_list.rs` and `software_raster.rs`.
+- [ ] Give text runs a height in layout. A block that contains only text lays out to
+      0x0, so its background is not painted (`<body>` with a background and a paragraph
+      renders nothing). Text leaves need a measured size.
 
 ### Observability and hygiene (spec §7, §9 developer tooling)
 - [x] Wire `profiler.rs` into `wasm.rs` and `layout.rs`; fix `mean()` u32 clamp and
@@ -657,11 +669,14 @@ fix should start with a failing regression test. WIT/spec changes go in
       `manifest::tests` and `tpt-helix-cli/tests/manifest.rs`, against the componentized
       guest example. Learn mode from a live run is not built: the static scan is the
       recommended design)
-- [ ] Migration confidence report with compile check and screenshot diff
-      (spec §10.3. Done: `helix migrate --confidence` prints pattern, equivalence,
-      warning count, and compile status. `--check --out <dir>` builds the written crate
-      for wasm32 and fails on error. Open: the screenshot diff, which needs a `DomOp` to
-      HTML mapping and a pixel comparison with `render_html`)
+- [x] Migration confidence report with compile check and screenshot diff
+      (spec §10.3. `helix migrate --confidence` prints pattern, equivalence, warning
+      count, compile status, and the screenshot check. `--check --out <dir>` builds the
+      written crate for wasm32. `migrate::reconstruct` rebuilds HTML from the `DomOp`
+      list, and the check compares it pixel by pixel with the original.
+      Limits: the static renderer paints rectangles only, so text is not compared.
+      Style bodies are not carried into the guest, so a lost stylesheet counts as a
+      difference)
 - [ ] Deterministic host-call record/replay for tests and bug reports
       (spec §10.5. Specified, not implemented. It needs a recorder at the host boundary
       that touches every `Guest` impl)

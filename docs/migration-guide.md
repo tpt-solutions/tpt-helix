@@ -25,6 +25,19 @@ helix migrate page.html --js app.js --out my-app-guest --strict
 non-zero when there are warnings. `--out` writes the crate, which you then build
 (see [guest-authoring.md](guest-authoring.md)).
 
+## Confidence report
+
+`--confidence` prints four facts, with no combined score: the pattern and its fit,
+the equivalence check (S3), the warning count, and a screenshot check. `--check` with
+`--out` also builds the written crate for wasm32 and reports the result.
+
+The screenshot check renders the original page and the page the guest rebuilds, at
+800x600, and reports the share of pixels that differ. Two limits matter when you
+read it. The static renderer paints rectangles only, so text is not compared, and a
+page whose text is its only content shows 0%. Style blocks are not carried into the
+guest, so a page that depends on its stylesheet shows the lost styling as a
+difference.
+
 ## Patterns
 
 Detection looks at the parsed structure of the page, not at element ids or class
@@ -56,7 +69,7 @@ the guest behaves like the original page.
 | Handlers with arguments                 | Not translated. Reported as a warning                                  |
 | Untyped JavaScript functions            | Listed in `needs_rust_types`. Plain JS carries no types                |
 | Inline handler bodies (`onclick="a(); b()"`) | Not translated. Reported as a warning                             |
-| Translated JS in the guest crate        | Not yet emitted into the guest crate                                  |
+| Translated JS in the guest crate        | Functions a handler reaches are emitted, transitively. Functions in `needs_rust_types` are not |
 | HTML parsing                            | Hand-written parser, not `html5ever` yet                              |
 | S3 screenshot equivalence               | Not built. The compile check does not prove the component links or runs |
 | Partner codebases                       | None migrated yet (see `TODO.md`, Phase 2)                             |
