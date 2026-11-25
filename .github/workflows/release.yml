@@ -38,7 +38,7 @@ jobs:
             archive: zip
             exe: helix.exe
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
