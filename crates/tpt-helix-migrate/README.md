@@ -80,10 +80,12 @@ Still open:
 
 - **The JS translation is a draft.** `js_transform::transpile_js_to_rust` runs in S2
   and its result is on `OrchestratedMigration::js`. It rewrites `function`, `const`,
-  `var`, `console.log`, and single-quoted strings. It does not infer parameter or
-  return types, so every translated function is listed in `needs_rust_types`. The
-  translated code is not yet emitted into the guest crate; the guest still gets only
-  the inferred types.
+  `var`, `console.log`, and single-quoted strings. TypeScript annotations map to Rust
+  types (`number` to `f64`, `string` to `&str`, `boolean` to `bool`, `T[]` to
+  `Vec<T>`). Plain JavaScript carries no types, so its functions stay in
+  `needs_rust_types`, and so does any function with an unmapped type. A literal
+  integer assigned to a `number` still needs a human to fix it. The translated code is
+  not yet emitted into the guest crate; the guest still gets only the inferred types.
 - **The HTML parser is hand-written.** It is not `html5ever`.
 - **Equivalence (S3) is structural.** It checks that every append refers to a
   created node and that some text survived. It does not compare rendered output.
