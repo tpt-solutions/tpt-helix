@@ -532,10 +532,21 @@ fix should start with a failing regression test. WIT/spec changes go in
       world name `helix` vs `helix-guest`) with `helix.wit`
 - [ ] Add the missing DOM events (`submit`, `change`, `input`, `play`, `pause`,
       `ended`) or a generic `on-event`, plus a host->guest `dispatch` export
+      (done: `dom.on-event(el, event, handler-id)` in `helix.wit`, implemented on the stub
+      and wasm hosts; the migration generator emits it for every event it uses, and
+      `every_supported_pattern_generates_a_guest_that_compiles` proves the output compiles.
+      Done too: the `helix-guest` world exports `dispatch(handler-id)`, the host calls it
+      through `Instance::fire_event`/`dispatch_handler`, and `tests/event_dispatch.rs`
+      runs the componentized guest end to end. Open: the migration generator emits an
+      empty `dispatch` because JS handler bodies are not translated yet)
 - [ ] Generate the guest world from (or check it against) `helix.wit`; remove the
       hard-coded `../tpt-helix-wit/wit` path in generated and example crates
 - [ ] Make `coverage.rs` `supported()` compile the generated guest crate so the
       "6/6 patterns" figure is meaningful; add screenshot-diff equivalence (S3)
+      (partly done: `tests/guest_build.rs` compiles each pattern's generated guest for
+      wasm32, runs in CI, and passes 6/6. Open: `supported()` still uses the structural
+      probe, and the S3 screenshot diff is not built. A compile check does not prove the
+      component links or runs against the runtime)
 - [x] Make `migrate()` return diagnostics/`Result`: surface `equivalence_ok`,
       stop on `Fit::None`, and stop `detect_pattern` defaulting to P1/Strong
       (`lib.rs`: `migrate()` returns `Result<_, MigrationError::Unsupported>`;
@@ -549,8 +560,11 @@ fix should start with a failing regression test. WIT/spec changes go in
       pass and overlaps are skipped; `console.log` becomes `println!` with a format
       string; `var` becomes `let mut`; single-quoted strings become double-quoted; syntax
       errors are reported; `Auto` falls back to TypeScript. Tests in `js_transform`.
-      Open: parameter and return types are not inferred, so every function is listed in
-      `needs_rust_types`; the translated code is not yet emitted into the guest crate)
+      TypeScript annotations map to Rust types (`number`→`f64`, `string`→`&str`,
+      `boolean`→`bool`, `T[]`→`Vec<T>`); a function with an unmapped or missing type is
+      listed in `needs_rust_types`. Open: plain JavaScript carries no types, so its
+      functions are always listed; the translated code is not yet emitted into the
+      guest crate)
 - [ ] Fix HTML transpiler text/whitespace joining, `<script>`/`<style>` raw text,
       entity decoding; consider `html5ever` instead of `parse_html`
       (done: words no longer join, edge spaces kept, `Node::Raw` for script/style bodies,
