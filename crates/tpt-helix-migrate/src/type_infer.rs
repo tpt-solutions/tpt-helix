@@ -221,7 +221,8 @@ pub fn infer_types(source: &str) -> Vec<TypeBinding> {
                 let l = strip_line_comment(l);
                 l.find("return ").map(|p| &l[p + "return ".len()..])
             }) {
-                let lit = ret.trim_end_matches(';').trim();
+                // The literal ends at `;` or `}`, so one-line functions work too.
+                let lit = ret.split([';', '}']).next().unwrap_or("").trim();
                 let ty = literal_type(lit);
                 if ty != InferredType::Unknown {
                     if let Some(b) = bindings.iter_mut().find(|b| b.name == name) {
@@ -248,6 +249,8 @@ pub fn infer_types(source: &str) -> Vec<TypeBinding> {
 pub fn generate_rust_type_decls(bindings: &[TypeBinding]) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "// Inferred types (custom JS → Rust inference)");
+    // JavaScript names are not camel case; the aliases keep them as written.
+    let _ = writeln!(s, "#[allow(non_camel_case_types)]");
     let _ = writeln!(s, "pub mod inferred {{");
     for b in bindings {
         let _ = writeln!(s, "    pub type {}_t = {};", b.name, b.ty.to_rust());

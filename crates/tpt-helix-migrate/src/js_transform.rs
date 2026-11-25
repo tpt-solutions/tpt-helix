@@ -22,6 +22,7 @@
 use tree_sitter::{Language, Node, Parser};
 
 use crate::SourceLang;
+use crate::type_infer::{BindingKind, InferredType, TypeBinding};
 
 /// One splice: replace `source[start..end]` with `replacement`.
 #[derive(Debug, Clone)]
@@ -380,6 +381,46 @@ fn function_is_typed(node: Node, source: &str) -> bool {
     }
 }
 
+/// The Rust return type to give a parameterless function that has no annotation
+/// and returns a value, taken from the inferred return type. Only `bool`, `i64`,
+/// and `f64` qualify. A string literal is a `&str` in Rust, while the inferencer
+/// reports `String`, so a string return stays untyped.
+fn inferred_return_rust(name: &str, inferred: &[TypeBinding]) -> Option<&'static str> {
+    let binding = inferred
+        .iter()
+        .find(|b| b.kind == BindingKind::Return && b.name == name)?;
+    match binding.ty {
+        InferredType::Bool => Some("bool"),
+        InferredType::Int => Some("i64"),
+        InferredType::Float => Some("f64"),
+        _ => None,
+    }
+}
+
+/// Whether a function declaration has an empty parameter list.
+fn takes_no_parameters(node: Node) -> bool {
+    node.child_by_field_name("parameters")
+        .is_some_and(|params| params.named_child_count() == 0)
+}
+
+/// Whether a parameterless function can be dispatched once its return type is
+/// known: it must be typed, or its return must be inferred as a number or bool.
+fn dispatch_return_type(
+    node: Node,
+    source: &str,
+    name: &str,
+    inferred: &[TypeBinding],
+) -> Option<Option<&'static str>> {
+    if function_is_typed(node, source) {
+        return Some(None);
+    }
+    let body = node.child_by_field_name("body")?;
+    if node.child_by_field_name("return_type").is_none() && has_value_return(body) {
+        return inferred_return_rust(name, inferred).map(Some);
+    }
+    None
+}
+
 /// Whether `node` contains a `return` that carries a value.
 fn has_value_return(node: Node) -> bool {
     if node.kind() == "return_statement" && node.named_child_count() > 0 {
@@ -506,10 +547,11 @@ fn rewrite_only(source: &str, lang: SourceLang) -> Option<String> {
 fn translate(source: &str, root: Node, lang: SourceLang) -> JsTranslation {
     let (rust, rewrites) = rewrite_tree(source, root);
 
+    let inferred = crate::type_infer::infer_types(source);
     let mut needs_rust_types = Vec::new();
-    collect_untyped_functions(root, source, &mut needs_rust_types);
+    collect_untyped_functions(root, source, &inferred, &mut needs_rust_types);
     let mut functions = Vec::new();
-    collect_dispatchable_functions(root, source, lang, &mut functions);
+    collect_dispatchable_functions(root, source, lang, &inferred, &mut functions);
     JsTranslation {
         rust,
         rewrites,
@@ -525,38 +567,57 @@ fn collect_dispatchable_functions(
     node: Node,
     source: &str,
     lang: SourceLang,
+    inferred: &[TypeBinding],
     out: &mut Vec<TranslatedFunction>,
 ) {
     if node.kind() == "function_declaration"
-        && node
-            .child_by_field_name("parameters")
-            .is_some_and(|params| params.named_child_count() == 0)
-        && function_is_typed(node, source)
-        && let Some(name) = node.child_by_field_name("name")
-        && !out.iter().any(|f| f.name == text(name, source))
+        && takes_no_parameters(node)
+        && let Some(name_node) = node.child_by_field_name("name")
+        && let name = text(name_node, source)
+        && !out.iter().any(|f| f.name == name)
+        && let Some(ret) = dispatch_return_type(node, source, name, inferred)
         && let Some(rust) = rewrite_only(text(node, source), lang)
+        && let Some(rust) = with_return_type(&rust, name, ret)
     {
         out.push(TranslatedFunction {
-            name: text(name, source).to_string(),
+            name: name.to_string(),
             rust,
         });
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_dispatchable_functions(child, source, lang, out);
+        collect_dispatchable_functions(child, source, lang, inferred, out);
     }
 }
 
-fn collect_untyped_functions(node: Node, source: &str, out: &mut Vec<String>) {
+/// Adds ` -> <ret>` after `fn <name>()` when a return type was inferred. Returns
+/// `None` if the signature is not where it should be.
+fn with_return_type(rust: &str, name: &str, ret: Option<&str>) -> Option<String> {
+    let Some(ret) = ret else {
+        return Some(rust.to_string());
+    };
+    let signature = format!("fn {name}()");
+    let at = rust.find(&signature)? + signature.len();
+    Some(format!("{} -> {ret}{}", &rust[..at], &rust[at..]))
+}
+
+fn collect_untyped_functions(
+    node: Node,
+    source: &str,
+    inferred: &[TypeBinding],
+    out: &mut Vec<String>,
+) {
     if node.kind() == "function_declaration"
-        && !function_is_typed(node, source)
         && let Some(name) = node.child_by_field_name("name")
+        && !function_is_typed(node, source)
+        && !(takes_no_parameters(node)
+            && dispatch_return_type(node, source, text(name, source), inferred).is_some())
     {
         out.push(text(name, source).to_string());
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_untyped_functions(child, source, out);
+        collect_untyped_functions(child, source, inferred, out);
     }
 }
 
@@ -630,12 +691,6 @@ mod dispatch_function_tests {
             "function add(a: number) { console.log(a); }",
             SourceLang::TypeScript,
         );
-        assert!(f.is_empty(), "{f:?}");
-    }
-
-    #[test]
-    fn untyped_return_value_is_not_dispatchable() {
-        let f = functions("function f() { return 1; }", SourceLang::JavaScript);
         assert!(f.is_empty(), "{f:?}");
     }
 }
@@ -836,5 +891,52 @@ mod tests {
             replacement: "Z".into(),
         });
         assert_eq!(t.apply(), ("YcXf".to_string(), 2));
+    }
+}
+
+#[cfg(test)]
+mod inferred_return_tests {
+    use super::*;
+
+    fn functions(src: &str) -> Vec<TranslatedFunction> {
+        transpile_js_to_rust(src, SourceLang::JavaScript)
+            .expect("parses")
+            .functions
+    }
+
+    #[test]
+    fn a_parameterless_function_returning_a_number_is_dispatchable() {
+        let f = functions("function answer() { return 42; }");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].name, "answer");
+        assert!(f[0].rust.contains("fn answer() -> i64"), "{}", f[0].rust);
+    }
+
+    #[test]
+    fn a_parameterless_function_returning_a_bool_is_dispatchable() {
+        let f = functions("function ready() { return true; }");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert!(f[0].rust.contains("fn ready() -> bool"), "{}", f[0].rust);
+    }
+
+    #[test]
+    fn a_string_return_is_not_inferred_and_stays_untyped() {
+        // The inferencer reports `String`, but a literal is `&str`, so the
+        // function is not given a return type.
+        let t = transpile_js_to_rust(
+            "function label() { return \"hi\"; }",
+            SourceLang::JavaScript,
+        )
+        .expect("parses");
+        assert!(t.functions.is_empty());
+        assert_eq!(t.needs_rust_types, vec!["label".to_string()]);
+    }
+
+    #[test]
+    fn a_function_with_parameters_is_never_inferred() {
+        let t = transpile_js_to_rust("function add(a) { return 1; }", SourceLang::JavaScript)
+            .expect("parses");
+        assert!(t.functions.is_empty());
+        assert_eq!(t.needs_rust_types, vec!["add".to_string()]);
     }
 }

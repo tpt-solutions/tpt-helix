@@ -87,13 +87,27 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
+/// Whether a translated function declares a return type (`-> T`).
+fn returns_value(rust: &str) -> bool {
+    rust.split('{')
+        .next()
+        .is_some_and(|signature| signature.contains("->"))
+}
+
 fn render_dispatch(site: &TranspiledSite, functions: &[TranslatedFunction]) -> String {
     let arms: Vec<String> = site
         .handlers
         .iter()
         .filter_map(|h| {
-            h.target(functions)
-                .map(|f| format!("        {} => {}(),\n", h.id, f.name))
+            h.target(functions).map(|f| {
+                // A match arm must produce `()`. A function with a return value
+                // has its result discarded.
+                if returns_value(&f.rust) {
+                    format!("        {} => {{ let _ = {}(); }}\n", h.id, f.name)
+                } else {
+                    format!("        {} => {}(),\n", h.id, f.name)
+                }
+            })
         })
         .collect();
     let mut s = String::from(
@@ -355,6 +369,37 @@ mod dispatch_table_tests {
             realtime: Default::default(),
             spa: Default::default(),
         }
+    }
+
+    #[test]
+    fn a_handler_whose_function_returns_a_value_discards_it_in_dispatch() {
+        let site = site_with(vec![HandlerBinding {
+            id: 0,
+            function: Some("answer".into()),
+        }]);
+        let functions = vec![TranslatedFunction {
+            name: "answer".into(),
+            rust: "fn answer() -> i64 { return 42; }".into(),
+        }];
+        let guest = generate_guest_crate("app", "1.0.0", &site, &[], "", None, &[], &functions);
+        assert!(
+            guest.lib_rs.contains("0 => { let _ = answer(); }"),
+            "a value-returning handler must not break the `()` match arms"
+        );
+    }
+
+    #[test]
+    fn a_handler_whose_function_returns_nothing_keeps_the_plain_arm() {
+        let site = site_with(vec![HandlerBinding {
+            id: 0,
+            function: Some("greet".into()),
+        }]);
+        let functions = vec![TranslatedFunction {
+            name: "greet".into(),
+            rust: "fn greet() { }".into(),
+        }];
+        let guest = generate_guest_crate("app", "1.0.0", &site, &[], "", None, &[], &functions);
+        assert!(guest.lib_rs.contains("0 => greet(),"));
     }
 
     #[test]

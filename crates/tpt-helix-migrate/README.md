@@ -90,13 +90,16 @@ Still open:
   types (`number` to `f64`, `string` to `&str`, `boolean` to `bool`, `T[]` to
   `Vec<T>`). Plain JavaScript carries no types, so its functions stay in
   `needs_rust_types`, and so does any function with an unmapped type. A literal
-  integer assigned to a `number` still needs a human to fix it. The translated code is
-  not yet emitted into the guest crate; the guest still gets only the inferred types.
+  integer assigned to a `number` still needs a human to fix it. A parameterless
+  function whose literal return is a number or a bool is typed from that return
+  (`-> i64`, `-> f64`, `-> bool`). Every translated function a handler reaches is
+  emitted into the guest, with the functions it calls. Functions with parameters, and
+  functions that return a string, are not typed, so they are reported and not emitted.
 - **The HTML parser is hand-written.** It is not `html5ever`.
 - **Equivalence (S3) is structural.** It checks that every append refers to a
   created node and that some text survived. It does not compare rendered output.
-- **The public `discover` function is still the line-based scanner.** The pipeline
-  no longer calls it, but it remains part of the API.
+- **`discover` is AST-backed.** It runs the tree-sitter TypeScript frontend. The
+  line-based scanner was removed.
 
 Treat a migration as a draft until its report has no warnings and its output has
 been reviewed by hand.
