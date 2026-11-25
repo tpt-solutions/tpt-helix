@@ -144,7 +144,7 @@ jobs:
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-lcov
           path: lcov.info
@@ -202,7 +202,7 @@ jobs:
           strip dist/helix-appfront-x86_64-unknown-linux-gnu || true
 
       - name: Upload Linux x86_64 binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: helix-appfront-linux-x86_64
           path: dist/helix-appfront-x86_64-unknown-linux-gnu
@@ -243,7 +243,7 @@ jobs:
         run: cargo bench -p tpt-helix-runtime --bench layout_bench -- --save-baseline "${{ github.sha }}"
 
       - name: Upload criterion results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: criterion-layout-${{ github.sha }}
           path: target/criterion
