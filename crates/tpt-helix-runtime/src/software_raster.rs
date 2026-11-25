@@ -15,7 +15,8 @@
 
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
-use crate::display_list::{Color, DisplayItem};
+use crate::display_list::{Color, DisplayItem, TextRun};
+use crate::text::draw_text;
 
 /// Paint `items` (in the order they were emitted, which is paint order) onto a
 /// `width`x`height` RGBA buffer, starting from a transparent black canvas.
@@ -64,6 +65,15 @@ pub fn rasterize_display_list(items: &[DisplayItem], width: u32, height: u32) ->
 }
 
 /// Encode an RGBA buffer as PNG bytes (used to persist a baseline / artifact).
+/// Paints text runs over `image`. Call it after [`rasterize_display_list`] so text
+/// sits above the boxes behind it.
+pub fn rasterize_text(image: &mut RgbaImage, runs: &[TextRun]) {
+    for run in runs {
+        let (r, g, b, a) = to_bytes(run.color);
+        draw_text(image, run.x, run.y, &run.text, run.font_size, [r, g, b, a]);
+    }
+}
+
 pub fn encode_png(image: &RgbaImage) -> Vec<u8> {
     let mut out = Vec::new();
     DynamicImage::ImageRgba8(image.clone())

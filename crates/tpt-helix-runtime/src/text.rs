@@ -1,6 +1,111 @@
 //! Task: Integrate `cosmic-text` for font shaping and line breaking.
 
-use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping};
+use std::cell::RefCell;
+
+use cosmic_text::{Attrs, Buffer, Color as TextColor, FontSystem, Metrics, Shaping, SwashCache};
+use image::{Rgba, RgbaImage};
+
+/// Line height as a multiple of the font size. Layout and painting both use it,
+/// so a text box is exactly as tall as the text it paints.
+pub const LINE_HEIGHT_RATIO: f32 = 1.25;
+
+/// The line height used for text at `font_size`.
+pub fn line_height_for(font_size: f32) -> f32 {
+    font_size * LINE_HEIGHT_RATIO
+}
+
+/// Per-thread font state. Loading system fonts is the expensive step, so it runs
+/// once per thread, not once per text run.
+struct Fonts {
+    system: FontSystem,
+    cache: SwashCache,
+}
+
+thread_local! {
+    static FONTS: RefCell<Option<Fonts>> = const { RefCell::new(None) };
+}
+
+fn with_fonts<R>(f: impl FnOnce(&mut FontSystem, &mut SwashCache) -> R) -> R {
+    FONTS.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let fonts = slot.get_or_insert_with(|| Fonts {
+            system: FontSystem::new_with_locale_and_db(
+                "en-US".to_string(),
+                crate::fonts::load_system_fonts(),
+            ),
+            cache: SwashCache::new(),
+        });
+        f(&mut fonts.system, &mut fonts.cache)
+    })
+}
+
+/// Shapes `text` on a single unwrapped line at `font_size` and returns its
+/// `(width, height)` in pixels. Returns `(0.0, 0.0)` when the system has no fonts.
+pub fn measure_text(text: &str, font_size: f32) -> (f32, f32) {
+    with_fonts(|system, _| {
+        let mut buffer = Buffer::new(system, Metrics::new(font_size, line_height_for(font_size)));
+        buffer.set_size(system, None, None);
+        buffer.set_text(system, text, Attrs::new(), Shaping::Advanced);
+        buffer.shape_until_scroll(system, false);
+        let mut width = 0.0f32;
+        let mut height = 0.0f32;
+        for run in buffer.layout_runs() {
+            width = width.max(run.line_w);
+            height = height.max(run.line_top + run.line_height);
+        }
+        (width, height)
+    })
+}
+
+/// Paints `text` into `image` with its top-left corner at `(x, y)`. `color` is
+/// straight (non-premultiplied) RGBA. Glyph coverage is composited with the
+/// source-over operator.
+pub fn draw_text(
+    image: &mut RgbaImage,
+    x: f32,
+    y: f32,
+    text: &str,
+    font_size: f32,
+    color: [u8; 4],
+) {
+    let (ox, oy) = (x.round() as i64, y.round() as i64);
+    with_fonts(|system, cache| {
+        let mut buffer = Buffer::new(system, Metrics::new(font_size, line_height_for(font_size)));
+        buffer.set_size(system, None, None);
+        buffer.set_text(system, text, Attrs::new(), Shaping::Advanced);
+        buffer.shape_until_scroll(system, false);
+        let text_color = TextColor::rgba(color[0], color[1], color[2], color[3]);
+        buffer.draw(system, cache, text_color, |px, py, w, h, c| {
+            for dy in 0..h as i64 {
+                for dx in 0..w as i64 {
+                    let tx = ox + px as i64 + dx;
+                    let ty = oy + py as i64 + dy;
+                    if tx < 0 || ty < 0 || tx >= image.width() as i64 || ty >= image.height() as i64
+                    {
+                        continue;
+                    }
+                    let dst = image.get_pixel_mut(tx as u32, ty as u32);
+                    blend_over(dst, [c.r(), c.g(), c.b()], c.a());
+                }
+            }
+        });
+    });
+}
+
+/// Source-over compositing of one straight-alpha source pixel onto `dst`.
+fn blend_over(dst: &mut Rgba<u8>, src: [u8; 3], alpha: u8) {
+    let a = alpha as f32 / 255.0;
+    let da = dst.0[3] as f32 / 255.0;
+    let out_a = a + da * (1.0 - a);
+    if out_a <= 0.0 {
+        return;
+    }
+    for (channel, &s) in dst.0.iter_mut().take(3).zip(src.iter()) {
+        let v = (s as f32 * a + *channel as f32 * da * (1.0 - a)) / out_a;
+        *channel = v.round().clamp(0.0, 255.0) as u8;
+    }
+    dst.0[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+}
 
 /// One shaped glyph, positioned relative to the top-left of its line.
 #[derive(Debug, Clone, Copy)]

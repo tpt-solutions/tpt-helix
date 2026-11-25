@@ -9,8 +9,9 @@ use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use taffy::prelude::{auto, length, percent};
 use taffy::{AvailableSpace, Dimension, Display, NodeId, Size, Style, TaffyTree};
 
-use crate::css::{DomElement, StyleRule, matches};
+use crate::css::{DomElement, StyleRule, TextStyle, matches, text_style};
 use crate::profiler::Profiler;
+use crate::text;
 
 /// The result of laying out a parsed HTML document: a `taffy` tree plus a
 /// map from each DOM element to its `taffy` node, so callers can look up
@@ -133,8 +134,10 @@ fn build_node(
     handle: &Handle,
     rules: &[StyleRule],
     depth: usize,
+    inherited: &TextStyle,
 ) -> taffy::TaffyResult<NodeId> {
     let style = resolve_style(&DomElement(handle.clone()), rules);
+    let text = text_style(&DomElement(handle.clone()), *inherited, rules);
 
     let children: Vec<NodeId> = if depth >= MAX_LAYOUT_DEPTH {
         Vec::new()
@@ -143,14 +146,67 @@ fn build_node(
             .children
             .borrow()
             .iter()
-            .filter(|c| is_element(c))
-            .map(|c| build_node(tree, c, rules, depth + 1))
+            .filter(|c| is_rendered_element(c) || is_text_with_content(c))
+            .map(|c| build_child(tree, c, rules, depth + 1, &text))
             .collect::<Result<_, _>>()?
     };
 
     let node = tree.new_with_children(style, &children)?;
     tree.set_node_context(node, Some(handle.clone()))?;
     Ok(node)
+}
+
+/// Builds the layout node for one child: an element, or a text leaf sized by
+/// measuring its text.
+fn build_child(
+    tree: &mut TaffyTree<Handle>,
+    handle: &Handle,
+    rules: &[StyleRule],
+    depth: usize,
+    inherited: &TextStyle,
+) -> taffy::TaffyResult<NodeId> {
+    if is_element(handle) {
+        return build_node(tree, handle, rules, depth, inherited);
+    }
+    let content = text_content(handle);
+    let (width, height) = text::measure_text(&content, inherited.font_size);
+    let node = tree.new_leaf(Style {
+        size: Size {
+            width: Dimension::Length(width),
+            height: Dimension::Length(height),
+        },
+        ..Style::default()
+    })?;
+    tree.set_node_context(node, Some(handle.clone()))?;
+    Ok(node)
+}
+
+/// Elements that never paint: document metadata and code. Their contents
+/// (a `<title>`, a `<style>` body) must not become page text.
+const NON_RENDERED_TAGS: &[&str] = &[
+    "head", "title", "meta", "link", "style", "script", "template", "noscript",
+];
+
+/// An element that takes part in layout and painting.
+fn is_rendered_element(handle: &Handle) -> bool {
+    match &handle.data {
+        NodeData::Element { name, .. } => !NON_RENDERED_TAGS.contains(&&*name.local),
+        _ => false,
+    }
+}
+
+/// A text node with at least one non-whitespace character. Whitespace-only text
+/// between tags lays out to nothing, as in a browser.
+fn is_text_with_content(handle: &Handle) -> bool {
+    matches!(&handle.data, NodeData::Text { contents } if !contents.borrow().trim().is_empty())
+}
+
+/// The trimmed content of a text node, or empty for other nodes.
+pub(crate) fn text_content(handle: &Handle) -> String {
+    match &handle.data {
+        NodeData::Text { contents } => contents.borrow().trim().to_string(),
+        _ => String::new(),
+    }
 }
 
 /// Builds a `taffy` tree for `dom`'s root element, styled by `rules`.
@@ -164,7 +220,7 @@ pub fn build_layout_tree(dom: &RcDom, rules: &[StyleRule]) -> taffy::TaffyResult
     let root_element = find_root_element(&dom.document).expect("document has a root element");
 
     let mut tree = TaffyTree::new();
-    let root = build_node(&mut tree, &root_element, rules, 0)?;
+    let root = build_node(&mut tree, &root_element, rules, 0, &TextStyle::default())?;
     Ok(DocumentLayout { tree, root })
 }
 

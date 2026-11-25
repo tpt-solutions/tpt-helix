@@ -7,7 +7,8 @@ use lightningcss::values::color::CssColor;
 use markup5ever_rcdom::{Handle, NodeData};
 use taffy::{NodeId, TaffyTree};
 
-use crate::css::{DomElement, StyleRule, matches};
+use crate::css::{DomElement, StyleRule, TextStyle, matches, text_style};
+use crate::layout::text_content;
 
 /// An RGBA color in `[0, 1]` linear-ish component range (no color management
 /// yet — sRGB hex values are mapped straight through).
@@ -146,6 +147,70 @@ fn walk(
     if let Ok(children) = tree.children(node) {
         for child in children {
             walk(tree, child, x, y, rules, items);
+        }
+    }
+}
+
+/// One run of text to paint, positioned by its top-left corner.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextRun {
+    pub x: f32,
+    pub y: f32,
+    pub text: String,
+    pub font_size: f32,
+    pub color: Color,
+}
+
+/// Collects the text runs of the laid-out tree in paint order. Each run takes the
+/// `color` and `font-size` its element cascades to.
+pub fn build_text_runs(
+    tree: &TaffyTree<Handle>,
+    root: NodeId,
+    rules: &[StyleRule],
+) -> Vec<TextRun> {
+    let mut out = Vec::new();
+    collect_text(tree, root, 0.0, 0.0, rules, TextStyle::default(), &mut out);
+    out
+}
+
+fn collect_text(
+    tree: &TaffyTree<Handle>,
+    node: NodeId,
+    parent_x: f32,
+    parent_y: f32,
+    rules: &[StyleRule],
+    inherited: TextStyle,
+    out: &mut Vec<TextRun>,
+) {
+    let Ok(layout) = tree.layout(node) else {
+        return;
+    };
+    let x = parent_x + layout.location.x;
+    let y = parent_y + layout.location.y;
+    let mut style = inherited;
+    if let Some(handle) = tree.get_node_context(node) {
+        match &handle.data {
+            NodeData::Element { .. } => {
+                style = text_style(&DomElement(handle.clone()), inherited, rules);
+            }
+            NodeData::Text { .. } => {
+                let text = text_content(handle);
+                if !text.is_empty() {
+                    out.push(TextRun {
+                        x,
+                        y,
+                        text,
+                        font_size: inherited.font_size,
+                        color: inherited.color,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Ok(children) = tree.children(node) {
+        for child in children {
+            collect_text(tree, child, x, y, rules, style, out);
         }
     }
 }

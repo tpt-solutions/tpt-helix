@@ -470,6 +470,89 @@ impl Element for DomElement {
 
 /// Returns whether `element` matches `selector`, using a fresh, default
 /// `MatchingContext` (no `:hover`/quirks-mode state tracked yet).
+/// Font size used when no `font-size` applies.
+pub const DEFAULT_FONT_SIZE: f32 = 16.0;
+
+/// Text properties that inherit down the tree: `color` and `font-size`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextStyle {
+    pub color: crate::display_list::Color,
+    pub font_size: f32,
+}
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        TextStyle {
+            color: crate::display_list::Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            font_size: DEFAULT_FONT_SIZE,
+        }
+    }
+}
+
+/// The text style of `element`: the parent's style, overridden by matching rules
+/// (ordered by specificity, then source order) and then by its inline `style`.
+pub fn text_style(element: &DomElement, parent: TextStyle, rules: &[StyleRule]) -> TextStyle {
+    let mut matched: Vec<(u32, usize, &StyleRule)> = rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.selectors.slice().iter().any(|s| matches(s, element)))
+        .map(|(i, rule)| {
+            let specificity = rule
+                .selectors
+                .slice()
+                .iter()
+                .map(|s| s.specificity())
+                .max()
+                .unwrap_or(0);
+            (specificity, i, rule)
+        })
+        .collect();
+    matched.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+    let mut style = parent;
+    for (_, _, rule) in matched {
+        apply_text_declarations(&rule.declarations_css, &mut style);
+    }
+    if let Some(inline) = element.inline_style() {
+        apply_text_declarations(&inline, &mut style);
+    }
+    style
+}
+
+fn apply_text_declarations(declarations: &str, style: &mut TextStyle) {
+    for declaration in declarations.split(';') {
+        let Some((property, value)) = declaration.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match property.trim() {
+            "color" => {
+                if let Some(color) = crate::display_list::Color::parse_css(value) {
+                    style.color = color;
+                }
+            }
+            "font-size" => {
+                if let Some(px) = parse_px(value) {
+                    style.font_size = px;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A finite, positive length in pixels: `24px` or a bare `24`.
+fn parse_px(value: &str) -> Option<f32> {
+    let number = value.strip_suffix("px").unwrap_or(value).trim();
+    let px: f32 = number.parse().ok()?;
+    (px.is_finite() && px > 0.0 && px <= 512.0).then_some(px)
+}
+
 pub fn matches(selector: &Selector<HelixSelectorImpl>, element: &DomElement) -> bool {
     let mut caches = SelectorCaches::default();
     let mut context = MatchingContext::new(

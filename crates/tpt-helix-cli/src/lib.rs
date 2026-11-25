@@ -26,11 +26,11 @@ use tpt_helix_migrate::generate_guest;
 use tpt_helix_migrate::spark::GuestCrate;
 use tpt_helix_runtime::capability::{Capability, DomScope, HostPattern, StorageScope};
 use tpt_helix_runtime::css::parse_stylesheet;
-use tpt_helix_runtime::display_list::build_display_list;
+use tpt_helix_runtime::display_list::{build_display_list, build_text_runs};
 use tpt_helix_runtime::html::{inline_styles, parse_html};
 use tpt_helix_runtime::layout::{build_layout_tree, compute};
 use tpt_helix_runtime::manifest::{self, GrantDiff, Manifest};
-use tpt_helix_runtime::software_raster::{encode_png, rasterize_display_list};
+use tpt_helix_runtime::software_raster::{encode_png, rasterize_display_list, rasterize_text};
 use tpt_helix_runtime::wasm::{Host, Module, sandboxed_engine};
 
 /// Largest viewport edge `render` accepts, in pixels.
@@ -81,7 +81,9 @@ pub fn render_html(
     compute(&mut layout, width as f32, height as f32)
         .map_err(|e| err(format!("layout failed: {e:?}")))?;
     let items = build_display_list(&layout.tree, layout.root, &rules);
-    let image = rasterize_display_list(&items, width, height);
+    let runs = build_text_runs(&layout.tree, layout.root, &rules);
+    let mut image = rasterize_display_list(&items, width, height);
+    rasterize_text(&mut image, &runs);
     Ok(encode_png(&image))
 }
 
