@@ -3,6 +3,7 @@ name = "tpt-helix-guest-example"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 description = "Example WASM guest component for TPT Helix, exercising the generated guest bindings."
 readme = "README.md"
 keywords = ["wasm", "guest", "webassembly", "example", "helix"]

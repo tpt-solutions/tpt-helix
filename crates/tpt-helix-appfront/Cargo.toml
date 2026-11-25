@@ -3,6 +3,7 @@ name = "tpt-helix-appfront"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 description = "Native window host for TPT Helix: bridges egui widgets and the taffy layout tree to render HTML."
 readme = "README.md"
 keywords = ["gui", "egui", "rendering", "window", "helix"]

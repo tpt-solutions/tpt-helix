@@ -24,6 +24,8 @@ default-members = [
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
+# MSRV: the toolchain pinned in rust-toolchain.toml, the oldest version CI tests.
+rust-version = "1.96.1"
 
 # Release build profile used for the packaged Linux x86_64 binary and CI
 # release runs. `lto = "thin"` keeps link time reasonable while still

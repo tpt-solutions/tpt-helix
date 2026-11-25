@@ -3,6 +3,7 @@ name = "tpt-helix-cli"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 description = "The `helix` developer CLI: run guests, render pages to PNG, migrate apps, build guests, scaffold projects, and check the toolchain."
 readme = "README.md"
 keywords = ["cli", "webassembly", "render", "migration", "helix"]

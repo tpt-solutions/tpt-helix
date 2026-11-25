@@ -3,6 +3,7 @@ name = "tpt-helix-migrate"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 description = "AI-assisted migration pipeline for TPT Helix: discovery, transpilation, equivalence checks, and guest-crate generation from JS/HTML apps."
 readme = "README.md"
 keywords = ["migration", "javascript", "transpiler", "webassembly", "helix"]

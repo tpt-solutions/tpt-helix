@@ -3,6 +3,7 @@ name = "tpt-helix-wit"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 description = "WIT interface definitions and generated host/guest bindings for the TPT Helix capability interfaces."
 readme = "README.md"
 keywords = ["wit", "webassembly", "component-model", "bindings", "helix"]
