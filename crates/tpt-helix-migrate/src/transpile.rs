@@ -282,6 +282,8 @@ impl SpaModel {
 pub struct TranspiledSite {
     /// Ordered DOM operations rebuilding the page.
     pub ops: Vec<DomOp>,
+    /// Event-handler attributes of the document, each bound to a handler id.
+    pub handlers: Vec<HandlerBinding>,
     /// Generated guest Rust source (componentizes against `helix-guest`).
     pub rust_source: String,
     /// Generated WIT `world` snippet the guest is built from.
@@ -699,6 +701,44 @@ fn rust_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// An event-handler attribute of the source document, bound to the guest handler
+/// id that registers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandlerBinding {
+    /// The handler id the guest registers with `dom::on_click` or `dom::on_event`.
+    pub id: u64,
+    /// The function the attribute calls, when it is a plain `name()` call. An
+    /// inline script such as `x = 1` has none.
+    pub function: Option<String>,
+}
+
+impl HandlerBinding {
+    /// The translated function this handler dispatches to, if one is available.
+    /// `run` and `dispatch` are excluded because they are the guest's own exports.
+    pub fn target<'a>(
+        &self,
+        functions: &'a [crate::js_transform::TranslatedFunction],
+    ) -> Option<&'a crate::js_transform::TranslatedFunction> {
+        let name = self.function.as_deref()?;
+        if name == "run" || name == "dispatch" {
+            return None;
+        }
+        functions.iter().find(|f| f.name == name)
+    }
+}
+
+/// The function an attribute value calls, for values of the form `name()`
+/// (optionally followed by `;`). Anything else is an inline handler: `None`.
+fn called_function(value: &str) -> Option<String> {
+    let v = value.trim().trim_end_matches(';').trim();
+    let name = v.strip_suffix("()")?;
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    let valid = (first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    valid.then(|| name.to_string())
+}
+
 /// Event-handler attributes mapped to their [`DomOp`] variant. These are
 /// captured as handler operations rather than raw `set-attribute` calls so the
 /// generated guest wires interactivity explicitly.
@@ -719,6 +759,7 @@ struct Emitter {
     ops: Vec<DomOp>,
     counter: usize,
     handler_counter: u64,
+    handlers: Vec<HandlerBinding>,
     crud: CrudModel,
     dataviz: DataVizModel,
     media: MediaModel,
@@ -984,6 +1025,10 @@ impl Emitter {
                         if let Some(make) = handler_attr(name) {
                             let h = self.next_handler();
                             self.ops.push(make(var.clone(), h));
+                            self.handlers.push(HandlerBinding {
+                                id: h,
+                                function: called_function(value),
+                            });
                             if el.tag.eq_ignore_ascii_case("form")
                                 && name.eq_ignore_ascii_case("onsubmit")
                                 && let Some(f) = this_form
@@ -1155,12 +1200,6 @@ impl Emitter {
             }
         }
         s.push_str("}\n");
-        // The host calls `dispatch` for each handler a DOM event triggers. The
-        // JavaScript handler bodies are not translated yet, so no handler has a
-        // body here; the export exists so the component matches the world.
-        s.push_str(
-            "\n#[unsafe(no_mangle)]\npub extern \"C\" fn dispatch(handler_id: u64) {\n    let _ = handler_id;\n}\n",
-        );
         s
     }
 }
@@ -1173,6 +1212,7 @@ fn transpile_html(html: &str) -> TranspiledSite {
         ops: Vec::new(),
         counter: 0,
         handler_counter: 0,
+        handlers: Vec::new(),
         crud: CrudModel::default(),
         dataviz: DataVizModel::default(),
         media: MediaModel::default(),
@@ -1181,6 +1221,7 @@ fn transpile_html(html: &str) -> TranspiledSite {
     };
     emitter.emit(&nodes, None, None, None);
     let ops = emitter.ops.clone();
+    let handlers = emitter.handlers.clone();
     let crud = emitter.crud.clone();
     let dataviz = emitter.dataviz.clone();
     let media = emitter.media.clone();
@@ -1196,6 +1237,7 @@ fn transpile_html(html: &str) -> TranspiledSite {
     .to_string();
     TranspiledSite {
         ops,
+        handlers,
         rust_source,
         wit_world,
         crud,
@@ -1772,5 +1814,59 @@ mod parser_hardening_tests {
             inline_scripts(html),
             vec!["let a = 1;".to_string(), "export const b = 2;".to_string()]
         );
+    }
+}
+
+#[cfg(test)]
+mod handler_binding_tests {
+    use super::*;
+    use crate::js_transform::TranslatedFunction;
+
+    #[test]
+    fn handler_attributes_bind_to_the_function_they_call() {
+        let site = transpile_static_site(
+            r#"<button onclick="greet()">Say</button><div onclick="x = 1"></div>"#,
+        );
+        assert_eq!(
+            site.handlers,
+            vec![
+                HandlerBinding {
+                    id: 0,
+                    function: Some("greet".into()),
+                },
+                HandlerBinding {
+                    id: 1,
+                    function: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn only_plain_zero_argument_calls_name_a_function() {
+        assert_eq!(called_function("greet()"), Some("greet".into()));
+        assert_eq!(called_function(" greet(); "), Some("greet".into()));
+        assert_eq!(called_function("greet(1)"), None);
+        assert_eq!(called_function("x = 1"), None);
+        assert_eq!(called_function("a.b()"), None);
+    }
+
+    #[test]
+    fn a_binding_targets_only_a_translated_function() {
+        let greet = TranslatedFunction {
+            name: "greet".into(),
+            rust: "fn greet() {}".into(),
+        };
+        let bound = HandlerBinding {
+            id: 0,
+            function: Some("greet".into()),
+        };
+        assert_eq!(bound.target(std::slice::from_ref(&greet)), Some(&greet));
+        assert_eq!(bound.target(&[]), None);
+        let reserved = HandlerBinding {
+            id: 1,
+            function: Some("run".into()),
+        };
+        assert_eq!(reserved.target(std::slice::from_ref(&greet)), None);
     }
 }

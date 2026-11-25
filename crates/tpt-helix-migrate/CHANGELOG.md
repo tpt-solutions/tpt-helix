@@ -15,6 +15,11 @@ All notable changes to `tpt-helix-migrate` are recorded here. The format follows
 - Added crate metadata (description, readme, keywords, categories).
 
 ### Added
+- `localStorage.setItem(key, value)` translates to a write through the guest's
+  `storage` capability (`helix::runtime::storage::set`).
+- Event handlers that call a translated function dispatch to it. `dispatch`
+  routes each handler id to its function, and handlers with no translated function are
+  reported in `warnings()`.
 - Generated guests export `dispatch`, required by the world. Handler bodies are
   empty until JS handlers are translated.
 - Stage S2 translates the supplied JS/TS source with `transpile_js_to_rust`. The

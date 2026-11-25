@@ -121,6 +121,24 @@ impl OrchestratedMigration {
         if let Some(err) = &self.js_error {
             warnings.push(format!("JavaScript was not translated: {err}"));
         }
+        let functions = self.js.as_ref().map_or(&[][..], |j| j.functions.as_slice());
+        let unwired: Vec<String> = self
+            .site
+            .handlers
+            .iter()
+            .filter(|h| h.target(functions).is_none())
+            .map(|h| match &h.function {
+                Some(name) => format!("{name}()"),
+                None => "an inline handler".to_string(),
+            })
+            .collect();
+        if !unwired.is_empty() {
+            warnings.push(format!(
+                "{} event handler(s) are not wired to a translated function: {}",
+                unwired.len(),
+                unwired.join(", ")
+            ));
+        }
         if let Some(js) = &self.js
             && !js.needs_rust_types.is_empty()
         {
@@ -485,6 +503,7 @@ mod tests {
     fn equivalence_check_fails_on_dangling_append() {
         // Hand-crafted op list with a forward reference that must fail.
         let site = TranspiledSite {
+            handlers: Vec::new(),
             ops: vec![
                 DomOp::Create {
                     var: "el0".into(),
@@ -594,5 +613,47 @@ mod detection_hardening_tests {
         let migration = orchestrate(&req);
         assert_eq!(migration.surface.imports.len(), 1);
         assert_eq!(migration.surface.imports[0].module, "./router.js");
+    }
+}
+
+#[cfg(test)]
+mod handler_wiring_tests {
+    use super::*;
+
+    #[test]
+    fn a_handler_with_no_translated_function_is_reported() {
+        let req = PlanRequest {
+            app_name: "form".into(),
+            version: "0.1.0".into(),
+            html: r#"<form onsubmit="add()"><input name="n"></form>"#.into(),
+            js: None,
+            targets: vec![],
+        };
+        let migration = orchestrate(&req);
+        assert!(
+            migration
+                .warnings()
+                .iter()
+                .any(|w| w.contains("add()") && w.contains("not wired")),
+            "{:?}",
+            migration.warnings()
+        );
+    }
+
+    #[test]
+    fn a_handler_with_a_translated_function_is_not_reported() {
+        let req = PlanRequest {
+            app_name: "page".into(),
+            version: "0.1.0".into(),
+            html: r#"<p>Hi</p><button onclick="greet()">Say</button>"#.into(),
+            js: Some("function greet() { console.log('hi'); }".into()),
+            targets: vec![],
+        };
+        let migration = orchestrate(&req);
+        assert!(
+            !migration.warnings().iter().any(|w| w.contains("not wired")),
+            "{:?}",
+            migration.warnings()
+        );
     }
 }

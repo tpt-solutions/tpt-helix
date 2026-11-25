@@ -75,6 +75,12 @@ Behavior you can rely on now:
   raw text. They never become visible content.
 - **Discovery reads code.** With no explicit JS source, S1 parses the inline
   `<script>` bodies with the AST frontend.
+- **`localStorage.setItem(key, value)` writes through the storage capability.** A
+  denied write traps the guest.
+- **Event handlers can call translated functions.** An attribute such as
+  `onclick="greet()"` dispatches to `greet` when `greet` is parameterless, fully typed,
+  and translated. Any other handler (an argument, an untyped function, an inline body)
+  is reported as not wired.
 
 Still open:
 

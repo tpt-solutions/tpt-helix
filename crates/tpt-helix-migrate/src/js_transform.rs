@@ -240,6 +240,51 @@ impl Rule for ConsoleLogRule {
     }
 }
 
+/// Renders a key or value argument as Rust. A plain single-quoted literal becomes
+/// a double-quoted one. Anything else is kept as written, and the compile check
+/// catches what does not translate.
+fn rust_str(node: Node, source: &str) -> String {
+    let raw = text(node, source);
+    match (node.kind(), simple_single_quoted(raw)) {
+        ("string", Some(inner)) => format!("\"{inner}\""),
+        _ => raw.to_string(),
+    }
+}
+
+/// Maps `localStorage.setItem(key, value)` onto the guest's `storage` capability.
+/// The host grants or denies the write, and a denied write traps the guest, the
+/// same as any other unchecked storage error.
+struct StorageSetRule;
+
+impl Rule for StorageSetRule {
+    fn matches(&self, node: Node) -> bool {
+        node.kind() == "call_expression"
+    }
+
+    fn rewrite(&self, node: Node, source: &str, t: &mut Transformer) {
+        let Some(callee) = node.child_by_field_name("function") else {
+            return;
+        };
+        if callee.kind() != "member_expression" || text(callee, source) != "localStorage.setItem" {
+            return;
+        }
+        let Some(arguments) = node.child_by_field_name("arguments") else {
+            return;
+        };
+        let mut cursor = arguments.walk();
+        let args: Vec<Node> = arguments.named_children(&mut cursor).collect();
+        let [key, value] = args.as_slice() else {
+            return;
+        };
+        let key = rust_str(*key, source);
+        let value = rust_str(*value, source);
+        t.replace_node(
+            node,
+            &format!("helix::runtime::storage::set(&{key}, {value}.as_bytes()).expect(\"storage\")"),
+        );
+    }
+}
+
 /// Rewrites a single-quoted string literal as a Rust double-quoted one, when the
 /// body needs no escaping.
 struct StringQuoteRule;
@@ -342,6 +387,17 @@ fn has_value_return(node: Node) -> bool {
     node.children(&mut cursor).any(has_value_return)
 }
 
+/// A translated function that a DOM event handler can call. Only functions with
+/// no parameters and a full Rust type (see [`JsTranslation::needs_rust_types`])
+/// qualify, so the generated guest can call them as they are.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TranslatedFunction {
+    /// The JavaScript function name, which is also the Rust function name.
+    pub name: String,
+    /// The translated Rust source of the function.
+    pub rust: String,
+}
+
 /// Result of a successful translation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsTranslation {
@@ -352,6 +408,8 @@ pub struct JsTranslation {
     /// Declared functions whose parameters and return types still need Rust
     /// types. JavaScript and TypeScript types do not map onto Rust by rewriting.
     pub needs_rust_types: Vec<String>,
+    /// Functions a DOM event handler can call: parameterless and fully typed.
+    pub functions: Vec<TranslatedFunction>,
 }
 
 /// Why a JS/TS source could not be translated.
@@ -404,7 +462,7 @@ pub fn transpile_js_to_rust(
             .ok_or(JsTranspileError::Grammar)?;
         let root = tree.root_node();
         if !root.has_error() {
-            return Ok(translate(source, root));
+            return Ok(translate(source, root, candidate));
         }
         first_error.get_or_insert(JsTranspileError::Syntax {
             line: first_error_line(root),
@@ -413,24 +471,77 @@ pub fn transpile_js_to_rust(
     Err(first_error.unwrap_or(JsTranspileError::Grammar))
 }
 
-fn translate(source: &str, root: Node) -> JsTranslation {
+/// Applies the starter rule set to the tree under `root`. Returns the rewritten
+/// source and the number of edits applied.
+fn rewrite_tree(source: &str, root: Node) -> (String, usize) {
     let rules: &[&dyn Rule] = &[
         &FnKeywordRule,
         &TypeAnnotationRule,
         &VarToLetRule,
         &ConsoleLogRule,
+        &StorageSetRule,
         &StringQuoteRule,
     ];
     let mut t = Transformer::new(source);
     visit_all(root, source, &mut t, rules);
-    let (rust, rewrites) = t.apply();
+    t.apply()
+}
+
+/// Rewrites `source` with the starter rules only. Unlike
+/// [`transpile_js_to_rust`], it does not collect functions, so it can translate
+/// a single function's text without recursing into its own translation.
+fn rewrite_only(source: &str, lang: SourceLang) -> Option<String> {
+    let mut parser = Parser::new();
+    parser.set_language(&grammar(lang)).ok()?;
+    let tree = parser.parse(source, None)?;
+    let root = tree.root_node();
+    if root.has_error() {
+        return None;
+    }
+    Some(rewrite_tree(source, root).0)
+}
+
+fn translate(source: &str, root: Node, lang: SourceLang) -> JsTranslation {
+    let (rust, rewrites) = rewrite_tree(source, root);
 
     let mut needs_rust_types = Vec::new();
     collect_untyped_functions(root, source, &mut needs_rust_types);
+    let mut functions = Vec::new();
+    collect_dispatchable_functions(root, source, lang, &mut functions);
     JsTranslation {
         rust,
         rewrites,
         needs_rust_types,
+        functions,
+    }
+}
+
+/// Collects the functions a handler can call. A function qualifies when it has
+/// no parameters and [`function_is_typed`] holds. Its Rust is the translation of
+/// its own source text, so it is exactly what the guest will compile.
+fn collect_dispatchable_functions(
+    node: Node,
+    source: &str,
+    lang: SourceLang,
+    out: &mut Vec<TranslatedFunction>,
+) {
+    if node.kind() == "function_declaration"
+        && node
+            .child_by_field_name("parameters")
+            .is_some_and(|params| params.named_child_count() == 0)
+        && function_is_typed(node, source)
+        && let Some(name) = node.child_by_field_name("name")
+        && !out.iter().any(|f| f.name == text(name, source))
+        && let Some(rust) = rewrite_only(text(node, source), lang)
+    {
+        out.push(TranslatedFunction {
+            name: text(name, source).to_string(),
+            rust,
+        });
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_dispatchable_functions(child, source, lang, out);
     }
 }
 
@@ -464,6 +575,61 @@ fn first_error_line(root: Node) -> usize {
         None
     }
     find(root).map(|n| n.start_position().row + 1).unwrap_or(1)
+}
+
+#[cfg(test)]
+mod storage_translation_tests {
+    use super::*;
+
+    #[test]
+    fn local_storage_set_item_becomes_a_storage_write() {
+        let f = transpile_js_to_rust(
+            "function save() { localStorage.setItem('note', 'hello'); }",
+            SourceLang::JavaScript,
+        )
+        .unwrap()
+        .functions;
+        assert_eq!(
+            f,
+            vec![TranslatedFunction {
+                name: "save".into(),
+                rust: "fn save() { helix::runtime::storage::set(&\"note\", \"hello\".as_bytes()).expect(\"storage\"); }".into(),
+            }]
+        );
+    }
+}
+
+#[cfg(test)]
+mod dispatch_function_tests {
+    use super::*;
+
+    fn functions(src: &str, lang: SourceLang) -> Vec<TranslatedFunction> {
+        transpile_js_to_rust(src, lang).expect("parses").functions
+    }
+
+    #[test]
+    fn typed_parameterless_function_is_translated_for_dispatch() {
+        let f = functions("function greet() { console.log('hi'); }", SourceLang::JavaScript);
+        assert_eq!(
+            f,
+            vec![TranslatedFunction {
+                name: "greet".into(),
+                rust: "fn greet() { println!(\"hi\"); }".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn functions_with_parameters_are_not_dispatchable() {
+        let f = functions("function add(a: number) { console.log(a); }", SourceLang::TypeScript);
+        assert!(f.is_empty(), "{f:?}");
+    }
+
+    #[test]
+    fn untyped_return_value_is_not_dispatchable() {
+        let f = functions("function f() { return 1; }", SourceLang::JavaScript);
+        assert!(f.is_empty(), "{f:?}");
+    }
 }
 
 #[cfg(test)]

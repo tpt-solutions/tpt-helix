@@ -14,6 +14,7 @@
 
 use crate::deploy::TargetPlatform;
 use crate::optimize::Suggestion;
+use crate::js_transform::TranslatedFunction;
 use crate::transpile::TranspiledSite;
 
 /// A fully generated, componentizable Helix guest guest.
@@ -27,6 +28,34 @@ pub struct GuestCrate {
     pub lib_rs: String,
     /// `helix-guest.wit` world contents.
     pub world_wit: String,
+}
+
+/// The guest's `dispatch` export: a match from handler id to the translated
+/// function it calls. Handlers with no translated function have no arm.
+fn render_dispatch(site: &TranspiledSite, functions: &[TranslatedFunction]) -> String {
+    let arms: Vec<String> = site
+        .handlers
+        .iter()
+        .filter_map(|h| {
+            h.target(functions)
+                .map(|f| format!("        {} => {}(),\n", h.id, f.name))
+        })
+        .collect();
+    let mut s = String::from(
+        "\n// Host callback: runs the handler registered under `handler_id`.\n\
+         #[unsafe(no_mangle)]\npub extern \"C\" fn dispatch(handler_id: u64) {\n",
+    );
+    if arms.is_empty() {
+        s.push_str("    let _ = handler_id;\n");
+    } else {
+        s.push_str("    match handler_id {\n");
+        for arm in arms {
+            s.push_str(&arm);
+        }
+        s.push_str("        _ => {}\n    }\n");
+    }
+    s.push_str("}\n");
+    s
 }
 
 fn rust_ident(name: &str) -> String {
@@ -98,6 +127,8 @@ fn kind_label(sug: &Suggestion) -> &'static str {
 /// * `js` — optional JS/TS source; when present, Stage S2 type inference
 ///   (`type_infer`) runs and the inferred `types` module is embedded.
 /// * `targets` — deploy targets, recorded in `Cargo.toml` comments.
+// Each argument is one stage's output, so bundling them would only rename the list.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_guest_crate(
     app_name: &str,
     version: &str,
@@ -106,6 +137,7 @@ pub fn generate_guest_crate(
     feature_flags_src: &str,
     js: Option<&str>,
     targets: &[TargetPlatform],
+    functions: &[TranslatedFunction],
 ) -> GuestCrate {
     let name = rust_ident(app_name);
     let cargo_toml = render_cargo_toml(&name, version, targets);
@@ -118,6 +150,23 @@ pub fn generate_guest_crate(
     ));
     lib_rs.push_str(&site.rust_source);
     lib_rs.push('\n');
+
+    // The translated functions that handlers call, then the dispatch table. Only
+    // functions a handler references are emitted, so nothing unused comes along.
+    let mut referenced: Vec<&TranslatedFunction> = Vec::new();
+    for handler in &site.handlers {
+        if let Some(f) = handler.target(functions)
+            && !referenced.iter().any(|r| r.name == f.name)
+        {
+            referenced.push(f);
+        }
+    }
+    for f in referenced {
+        lib_rs.push('\n');
+        lib_rs.push_str(&f.rust);
+        lib_rs.push('\n');
+    }
+    lib_rs.push_str(&render_dispatch(site, functions));
     lib_rs.push_str(&render_optimization_notes(suggestions));
 
     if let Some(js) = js {
@@ -148,6 +197,7 @@ mod tests {
 
     fn sample_site() -> TranspiledSite {
         TranspiledSite {
+            handlers: Vec::new(),
             ops: vec![
                 DomOp::Create {
                     var: "el0".into(),
@@ -184,6 +234,7 @@ mod tests {
             flags,
             None,
             &[TargetPlatform::Wasm32],
+            &[],
         );
         assert_eq!(guest.name, "my_app");
         assert!(guest.cargo_toml.contains("name = \"my_app\""));
@@ -211,6 +262,7 @@ mod tests {
             "",
             Some("const name = \"x\"; let n = 1;"),
             &[],
+            &[],
         );
         assert!(guest.lib_rs.contains("Stage S4 optimization suggestions"));
         assert!(guest.lib_rs.contains("[loop-parallel]"));
@@ -222,5 +274,67 @@ mod tests {
     fn sanitized_name_handles_special_chars() {
         assert_eq!(rust_ident("my-app v2!"), "my_app_v2_");
         assert_eq!(rust_ident(""), "_");
+    }
+}
+
+#[cfg(test)]
+mod dispatch_table_tests {
+    use super::*;
+    use crate::transpile::{DomOp, HandlerBinding, TranspiledSite};
+
+    fn site_with(handlers: Vec<HandlerBinding>) -> TranspiledSite {
+        TranspiledSite {
+            ops: vec![DomOp::Create {
+                var: "el0".into(),
+                tag: "button".into(),
+            }],
+            handlers,
+            rust_source: "pub extern \"C\" fn run() {}\n".into(),
+            wit_world: "world helix-guest {}\n".into(),
+            crud: Default::default(),
+            dataviz: Default::default(),
+            media: Default::default(),
+            realtime: Default::default(),
+            spa: Default::default(),
+        }
+    }
+
+    #[test]
+    fn dispatch_calls_only_the_translated_functions_handlers_reference() {
+        let site = site_with(vec![
+            HandlerBinding {
+                id: 0,
+                function: Some("greet".into()),
+            },
+            HandlerBinding {
+                id: 1,
+                function: Some("missing".into()),
+            },
+        ]);
+        let functions = vec![TranslatedFunction {
+            name: "greet".into(),
+            rust: "fn greet() { println!(\"hi\"); }".into(),
+        }];
+        let guest = generate_guest_crate("app", "1.0.0", &site, &[], "", None, &[], &functions);
+        assert!(guest.lib_rs.contains("fn greet() { println!(\"hi\"); }"));
+        assert!(guest.lib_rs.contains("        0 => greet(),"));
+        assert!(!guest.lib_rs.contains("missing"));
+        assert!(guest.lib_rs.contains("pub extern \"C\" fn dispatch(handler_id: u64)"));
+    }
+
+    #[test]
+    fn a_guest_without_handlers_gets_an_empty_callback() {
+        let guest = generate_guest_crate(
+            "app",
+            "1.0.0",
+            &site_with(Vec::new()),
+            &[],
+            "",
+            None,
+            &[],
+            &[],
+        );
+        assert!(guest.lib_rs.contains("let _ = handler_id;"));
+        assert!(!guest.lib_rs.contains("match handler_id"));
     }
 }

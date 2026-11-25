@@ -56,6 +56,7 @@ pub fn generate_guest(
         &migration.feature_flags,
         req.js.as_deref(),
         &req.targets,
+        migration.js.as_ref().map_or(&[], |j| j.functions.as_slice()),
     )
 }
 

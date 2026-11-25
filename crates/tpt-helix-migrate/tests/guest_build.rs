@@ -126,3 +126,32 @@ fn every_supported_pattern_generates_a_guest_that_compiles() {
         failures.join("\n\n")
     );
 }
+
+#[test]
+#[ignore = "needs the wasm32-unknown-unknown target and compiles the guest; run with --ignored"]
+fn a_click_handler_calls_its_translated_function_and_compiles() {
+    let html = r#"<html><body><h1>Counter</h1><button onclick="greet()">Say hi</button></body></html>"#;
+    let js = "function greet() { console.log('hi'); }";
+    let (migration, guest) = migrate(&PlanRequest {
+        app_name: "clicker".into(),
+        version: "0.1.0".into(),
+        html: html.into(),
+        js: Some(js.into()),
+        targets: vec![TargetPlatform::Wasm32],
+    })
+    .expect("a page with a button is supported");
+
+    assert!(
+        migration.warnings().is_empty(),
+        "unexpected warnings: {:?}",
+        migration.warnings()
+    );
+    assert!(
+        guest.lib_rs.contains("0 => greet(),"),
+        "dispatch does not call greet:\n{}",
+        guest.lib_rs
+    );
+    if let Err(detail) = check_generated("clicker", &guest) {
+        panic!("the generated guest does not compile:\n{detail}");
+    }
+}
