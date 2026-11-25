@@ -20,6 +20,9 @@ use crate::render::RenderItem;
 pub struct ClickEvent {
     pub node: usize,
     pub tag: String,
+    /// The guest element under the pointer (its `data-helix-id`). The host looks up
+    /// that element's handlers in the runtime and dispatches them.
+    pub element: Option<u64>,
     /// Pointer position in surface coordinates (origin at the render surface's top-left).
     pub x: f32,
     pub y: f32,
@@ -48,10 +51,11 @@ impl AppFront {
     }
 }
 
-fn hit_to_click(hit: &HitBox, x: f32, y: f32) -> ClickEvent {
+fn hit_to_click(hit: &HitBox, element: Option<u64>, x: f32, y: f32) -> ClickEvent {
     ClickEvent {
         node: hit.node,
         tag: hit.tag.clone(),
+        element,
         x,
         y,
     }
@@ -113,7 +117,8 @@ impl eframe::App for AppFront {
             {
                 let local = pos - origin;
                 if let Some(hit) = frame.hit_test(local.x, local.y) {
-                    handler(hit_to_click(hit, local.x, local.y));
+                    let element = frame.element_at(local.x, local.y);
+                    handler(hit_to_click(hit, element, local.x, local.y));
                 }
             }
         });

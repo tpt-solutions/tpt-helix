@@ -140,6 +140,12 @@ impl BridgeSession {
         }
     }
 
+    /// The session's DOM as HTML, with each element's `data-helix-id`. See
+    /// [`RuntimeState::document_html`].
+    pub fn document_html(&self) -> String {
+        self.state.borrow().document_html()
+    }
+
     /// Discards any batched ops this session has not committed.
     pub fn clear_batch(&self) {
         *self.batch.borrow_mut() = DomBatch::default();

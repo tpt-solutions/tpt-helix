@@ -20,7 +20,7 @@
 //! leaking into the core.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::capability::{
     AppId, Capability, CapabilityBroker, CapabilityError, CapabilityToken, DomScope, HostPattern,
@@ -77,6 +77,34 @@ pub struct Response {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+}
+
+/// Elements that have no closing tag in HTML.
+const VOID_HTML_TAGS: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
+    "wbr",
+];
+
+/// A non-empty ASCII name made of letters, digits, `-` and `_`.
+fn is_plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn escape_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Per-app guest state caps (hostile-input hardening, TODO review follow-ups).
@@ -498,6 +526,66 @@ impl RuntimeState {
         self.elements.get(&id).map(to_public)
     }
 
+    /// Ids of every element, in ascending order.
+    pub fn element_ids(&self) -> Vec<u64> {
+        let mut ids: Vec<u64> = self.elements.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// The guest's DOM as HTML, so a renderer can lay it out. Every element carries
+    /// `data-helix-id`, so a hit on a rendered box maps back to the element and its
+    /// handlers. Roots are the elements no other element contains, in id order.
+    /// Tags and attribute names that are not plain ASCII names are dropped.
+    pub fn document_html(&self) -> String {
+        let mut has_parent: HashSet<u64> = HashSet::new();
+        for el in self.elements.values() {
+            has_parent.extend(el.children.iter().copied());
+        }
+        let mut out = String::new();
+        for id in self.element_ids() {
+            if !has_parent.contains(&id) {
+                self.write_element(id, &mut out, 0);
+            }
+        }
+        out
+    }
+
+    fn write_element(&self, id: u64, out: &mut String, depth: usize) {
+        // Bounds the recursion on hostile input, such as a cycle of appended children.
+        const MAX_DEPTH: usize = 256;
+        let Some(el) = self.elements.get(&id) else {
+            return;
+        };
+        if depth >= MAX_DEPTH {
+            return;
+        }
+        let tag = if is_plain_name(&el.tag) {
+            el.tag.to_ascii_lowercase()
+        } else {
+            "div".to_string()
+        };
+        out.push_str(&format!("<{tag} data-helix-id=\"{id}\""));
+        let mut attrs: Vec<(&String, &String)> = el
+            .attributes
+            .iter()
+            .filter(|(name, _)| is_plain_name(name) && name.as_str() != "data-helix-id")
+            .collect();
+        attrs.sort();
+        for (name, value) in attrs {
+            out.push_str(&format!(" {}=\"{}\"", name, escape_html(value)));
+        }
+        out.push('>');
+        if VOID_HTML_TAGS.contains(&tag.as_str()) {
+            return;
+        }
+        out.push_str(&escape_html(&el.text));
+        for child in &el.children {
+            self.write_element(*child, out, depth + 1);
+        }
+        out.push_str(&format!("</{tag}>"));
+    }
+
     pub fn click_count(&self, id: u64) -> usize {
         self.click_handlers.get(&id).map(Vec::len).unwrap_or(0)
     }
@@ -712,6 +800,43 @@ impl MediaGuest for RuntimeStub {
 
     fn seek(handle: WitPlayerHandle, time_ms: u64) {
         Self::seek(handle, time_ms)
+    }
+}
+
+#[cfg(test)]
+mod document_html_tests {
+    use super::*;
+
+    #[test]
+    fn document_html_nests_children_and_marks_each_element() {
+        let mut st = RuntimeState::default();
+        let outer = st.create_element("ul".into());
+        let inner = st.create_element("li".into());
+        st.set_text(inner, "a < b & c".into());
+        st.append_child(outer, inner);
+        assert_eq!(
+            st.document_html(),
+            format!(
+                "<ul data-helix-id=\"{outer}\"><li data-helix-id=\"{inner}\">a &lt; b &amp; c</li></ul>"
+            )
+        );
+    }
+
+    #[test]
+    fn document_html_drops_names_that_are_not_plain() {
+        let mut st = RuntimeState::default();
+        let bad = st.create_element("scr<ipt".into());
+        st.set_attribute(bad, "on click".into(), "x".into());
+        let html = st.document_html();
+        assert!(html.starts_with("<div data-helix-id="), "{html}");
+        assert!(!html.contains("on click"), "{html}");
+    }
+
+    #[test]
+    fn a_void_element_has_no_closing_tag() {
+        let mut st = RuntimeState::default();
+        let img = st.create_element("img".into());
+        assert_eq!(st.document_html(), format!("<img data-helix-id=\"{img}\">"));
     }
 }
 

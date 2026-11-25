@@ -49,6 +49,8 @@ struct RenderMeta {
     node: usize,
     /// Lower-case tag name for elements; `#text` for text nodes.
     tag: String,
+    /// The guest element this box renders, from its `data-helix-id` attribute.
+    element: Option<u64>,
     background: Option<[u8; 4]>,
     border_color: Option<[u8; 4]>,
     border_width: f32,
@@ -156,6 +158,8 @@ pub struct HitBox {
     pub node: usize,
     /// Lower-case tag name (`#text` for text nodes).
     pub tag: String,
+    /// The guest element this box renders, if the document marks one.
+    pub element: Option<u64>,
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -182,6 +186,17 @@ impl Frame {
     /// (and among siblings, the one painted on top).
     pub fn hit_test(&self, x: f32, y: f32) -> Option<&HitBox> {
         self.hits.iter().rev().find(|b| b.contains(x, y))
+    }
+
+    /// The guest element at `(x, y)`: the deepest box containing the point that is
+    /// backed by an element. A text run is not an element, so a click on text
+    /// reports the element that contains the text.
+    pub fn element_at(&self, x: f32, y: f32) -> Option<u64> {
+        self.hits
+            .iter()
+            .rev()
+            .find(|b| b.contains(x, y) && b.element.is_some())
+            .and_then(|b| b.element)
     }
 }
 
@@ -274,6 +289,7 @@ fn build_node(
             *next_node += 1;
             let mut classes = Vec::new();
             let mut inline = String::new();
+            let mut element = None;
             for attr in attrs.borrow().iter() {
                 let an = attr.name.local.to_string().to_ascii_lowercase();
                 let av = attr.value.to_string();
@@ -281,6 +297,8 @@ fn build_node(
                     classes.extend(av.split_whitespace().map(|s| s.to_string()));
                 } else if an == "style" {
                     inline = av;
+                } else if an == "data-helix-id" {
+                    element = av.trim().parse().ok();
                 }
             }
             let props = resolve_element_props(&tag, &classes, &doc.stylesheet, &inline);
@@ -301,6 +319,7 @@ fn build_node(
             let meta = RenderMeta {
                 node: node_id,
                 tag: tag.clone(),
+                element,
                 background: props.background,
                 border_color: props.border_color,
                 border_width: props.border_width.unwrap_or(0.0),
@@ -435,6 +454,7 @@ fn emit(
         hits.push(HitBox {
             node: meta.node,
             tag: meta.tag.clone(),
+            element: meta.element,
             x,
             y,
             w,
