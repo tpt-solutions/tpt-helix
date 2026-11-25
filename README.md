@@ -79,6 +79,28 @@ cargo build -p tpt-helix-runtime --features libp2p
 On Windows, the QuickJS fallback's build script (`rquickjs`) needs `patch` on
 `PATH` (Git for Windows ships it under `usr/bin`).
 
+### Toolchain
+
+- `rust-toolchain.toml` pins Rust `1.96.1` with `rustfmt`, `clippy`, and the
+  `wasm32-unknown-unknown` target. `rustup` installs these automatically.
+- The minimum supported Rust version (`rust-version`) is `1.96.1`, the pinned
+  toolchain. Older compilers are not tested.
+- The end-to-end guest tests (`tpt-helix-cli/tests/e2e.rs`,
+  `tpt-helix-migrate/tests/guest_build.rs`, marked `#[ignore]`) need the wasm32
+  target and `wasm-tools`. CI pins `wasm-tools` to `1.263.0`:
+
+  ```sh
+  cargo install wasm-tools --version 1.263.0 --locked
+  cargo test -p tpt-helix-cli -- --ignored
+  cargo test -p tpt-helix-migrate --test guest_build -- --ignored
+  ```
+
+### Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the
+`helix` CLI for Linux x86_64, macOS arm64, and Windows x86_64 and attaches the
+archives and SHA-256 checksums to a GitHub release.
+
 CI (`.github/workflows/ci.yml`) builds and tests on Linux/macOS/Windows,
 lints with clippy + rustfmt, builds the wasm32 guest, reports coverage via
 `cargo-llvm-cov`, and packages a Linux x86_64 release binary of `appfront`.

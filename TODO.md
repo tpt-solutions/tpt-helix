@@ -537,8 +537,16 @@ fix should start with a failing regression test. WIT/spec changes go in
       `every_supported_pattern_generates_a_guest_that_compiles` proves the output compiles.
       Done too: the `helix-guest` world exports `dispatch(handler-id)`, the host calls it
       through `Instance::fire_event`/`dispatch_handler`, and `tests/event_dispatch.rs`
-      runs the componentized guest end to end. Open: the migration generator emits an
-      empty `dispatch` because JS handler bodies are not translated yet)
+      runs the componentized guest end to end. Handler attributes that call a plain
+      `name()` dispatch to that function when it is translated (parameterless and fully
+      typed), and `guest_build.rs` compile-checks a migrated click handler. Open: handler
+      arguments, untyped JavaScript functions, and inline handler bodies are not
+      translated, and each one is reported as a warning)
+      End-to-end: `tests/e2e.rs` migrates a page with a click handler, builds and
+      componentizes the guest, runs it in the runtime, and checks the storage write the
+      translated handler makes. Open: the test is `#[ignore]`d because it needs the wasm32
+      target and `wasm-tools`. CI's `wasm-guest` job installs `wasm-tools` (pinned to
+      1.263.0) and runs both ignored tests.
 - [ ] Generate the guest world from (or check it against) `helix.wit`; remove the
       hard-coded `../tpt-helix-wit/wit` path in generated and example crates
 - [ ] Make `coverage.rs` `supported()` compile the generated guest crate so the
@@ -570,11 +578,12 @@ fix should start with a failing regression test. WIT/spec changes go in
       (done: words no longer join, edge spaces kept, `Node::Raw` for script/style bodies,
       `decode_entities` for text and attributes; tests in `parser_hardening_tests`.
       Open: `parse_html` is still hand-written, not `html5ever`)
-- [ ] Replace id-substring pattern sniffing (`board`/`chat`/`doc`) with structural
+- [x] Replace id-substring pattern sniffing (`board`/`chat`/`doc`) with structural
       detection; make the `discover` line-based fallback AST-only
-      (done: detection uses parsed structure only, and S1 runs the AST frontend over
-      inline `<script>` bodies instead of the line scanner. Open: the public `discover`
-      line scanner still exists; delete it or route it through the AST frontend)
+      (detection uses parsed structure only, and S1 runs the AST frontend over
+      inline `<script>` bodies. `discover` (`lib.rs`) now delegates to the tree-sitter
+      TypeScript frontend and the line scanner is deleted; tests in
+      `tests/discovery.rs` and `tree_sitter_discovery.rs`)
 - [ ] appfront: use `from_rgba_unmultiplied`, cache layout per size, and route egui
       input events to guest `on-click`
 
@@ -597,11 +606,20 @@ fix should start with a failing regression test. WIT/spec changes go in
       manifests, consumed by `helix new`
 - [ ] Docs: getting-started, guest authoring guide, capability manifest reference,
       migration guide with coverage/limits table
-- [ ] Add `rust-toolchain.toml` + MSRV and document `wasm-tools` in the README
-- [ ] Add `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, issue/PR templates,
-      Dependabot
+- [x] Add `rust-toolchain.toml` + MSRV and document `wasm-tools` in the README
+      (`rust-toolchain.toml` pins 1.96.1; `rust-version = "1.96.1"` in
+      `Cargo.toml` `[workspace.package]`, inherited by every crate; README "Toolchain"
+      section documents the `wasm-tools` 1.263.0 pin for the `#[ignore]`d tests)
+- [x] Add `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, issue/PR templates,
+      Dependabot (`CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`;
+      `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.md`,
+      `.github/PULL_REQUEST_TEMPLATE.md`, `.github/dependabot.yml`)
 - [ ] CI: tag-triggered release workflow (Linux/macOS/Windows binaries),
       `cargo-deny`/`cargo-audit`, criterion benchmark tracking
+      (done: `.github/workflows/release.yml` builds the `helix` CLI for Linux x86_64,
+      macOS arm64 and Windows x86_64 on `v*` tags, attaches archives and SHA-256
+      sums to a GitHub release. Not yet run on a real tag. Open: `cargo-deny`/
+      `cargo-audit` job, and benchmark tracking in CI)
 
 ### Innovation candidates (need spec entries before implementation)
 - [ ] Capability manifest inference (learn mode / static scan -> minimal manifest)
