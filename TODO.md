@@ -613,12 +613,17 @@ fix should start with a failing regression test. WIT/spec changes go in
       does not exist yet. `cargo check -p tpt-helix-appfront --features window` passes; the window itself has not been run on a display)
 
 ### Render pipeline gaps (found by the migration screenshot check)
-- [ ] Paint text. The display list emits rectangles only, so `helix render` and the
-      screenshot check never show text. Needs glyph output from `text.rs`/`cosmic-text`
-      into `display_list.rs` and `software_raster.rs`.
-- [ ] Give text runs a height in layout. A block that contains only text lays out to
-      0x0, so its background is not painted (`<body>` with a background and a paragraph
-      renders nothing). Text leaves need a measured size.
+- [x] Paint text. `text::draw_text` paints glyph coverage with cosmic-text's
+      `Buffer::draw`. `display_list::build_text_runs` collects the runs in paint order,
+      each with its cascaded `color` and `font-size`, and `software_raster::rasterize_text`
+      composites them over the boxes. Caveats: the output depends on the host's installed
+      fonts, which the tests check for and skip without. Text does not wrap to the box
+      width yet. Tests in `tests/render_pipeline.rs`.
+- [x] Give text runs a height in layout. Text nodes are layout leaves sized by
+      `text::measure_text`, so a block that holds only text takes the text's height and
+      paints its background. Non-rendered elements (`head`, `title`, `style`, `script`,
+      and others) are excluded, so their contents never become page text. Tests in
+      `tests/render_pipeline.rs`.
 
 ### Observability and hygiene (spec §7, §9 developer tooling)
 - [x] Wire `profiler.rs` into `wasm.rs` and `layout.rs`; fix `mean()` u32 clamp and
@@ -674,7 +679,7 @@ fix should start with a failing regression test. WIT/spec changes go in
       count, compile status, and the screenshot check. `--check --out <dir>` builds the
       written crate for wasm32. `migrate::reconstruct` rebuilds HTML from the `DomOp`
       list, and the check compares it pixel by pixel with the original.
-      Limits: the static renderer paints rectangles only, so text is not compared.
+      Limits: text is compared using the host's installed fonts, and text does not wrap yet.
       Style bodies are not carried into the guest, so a lost stylesheet counts as a
       difference)
 - [ ] Deterministic host-call record/replay for tests and bug reports
