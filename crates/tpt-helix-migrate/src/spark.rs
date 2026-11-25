@@ -36,6 +36,57 @@ pub struct GuestCrate {
 
 /// The guest's `dispatch` export: a match from handler id to the translated
 /// function it calls. Handlers with no translated function have no arm.
+/// The translated functions a guest needs: every handler target, plus every
+/// translated function those call, transitively. Returned in the order of
+/// `functions`, so the generated source does not depend on handler order.
+///
+/// A call is `name(` with no identifier character before `name`. A match inside a
+/// string literal also counts, which can only keep an extra function. It never
+/// drops a needed one.
+fn closure_of_calls<'a>(
+    site: &TranspiledSite,
+    functions: &'a [TranslatedFunction],
+) -> Vec<&'a TranslatedFunction> {
+    let index_of = |name: &str| functions.iter().position(|g| g.name == name);
+    let mut keep = vec![false; functions.len()];
+    let mut work: Vec<usize> = Vec::new();
+    for handler in &site.handlers {
+        if let Some(f) = handler.target(functions)
+            && let Some(i) = index_of(&f.name)
+            && !keep[i]
+        {
+            keep[i] = true;
+            work.push(i);
+        }
+    }
+    while let Some(i) = work.pop() {
+        for (j, g) in functions.iter().enumerate() {
+            if !keep[j] && calls(&functions[i].rust, &g.name) {
+                keep[j] = true;
+                work.push(j);
+            }
+        }
+    }
+    functions
+        .iter()
+        .zip(keep)
+        .filter_map(|(f, k)| k.then_some(f))
+        .collect()
+}
+
+/// Whether `source` calls the function `name`.
+fn calls(source: &str, name: &str) -> bool {
+    let bytes = source.as_bytes();
+    source.match_indices(name).any(|(at, _)| {
+        let starts_name = at == 0 || !is_ident_byte(bytes[at - 1]);
+        starts_name && source[at + name.len()..].trim_start().starts_with('(')
+    })
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+}
+
 fn render_dispatch(site: &TranspiledSite, functions: &[TranslatedFunction]) -> String {
     let arms: Vec<String> = site
         .handlers
@@ -158,14 +209,9 @@ pub fn generate_guest_crate(
 
     // The translated functions that handlers call, then the dispatch table. Only
     // functions a handler references are emitted, so nothing unused comes along.
-    let mut referenced: Vec<&TranslatedFunction> = Vec::new();
-    for handler in &site.handlers {
-        if let Some(f) = handler.target(functions)
-            && !referenced.iter().any(|r| r.name == f.name)
-        {
-            referenced.push(f);
-        }
-    }
+    // A handler's function can call other translated functions, so the set is
+    // closed over calls: each function a kept function calls is kept too.
+    let referenced = closure_of_calls(site, functions);
     for f in referenced {
         lib_rs.push('\n');
         lib_rs.push_str(&f.rust);
@@ -309,6 +355,50 @@ mod dispatch_table_tests {
             realtime: Default::default(),
             spa: Default::default(),
         }
+    }
+
+    #[test]
+    fn a_handler_pulls_in_the_helpers_it_transitively_calls() {
+        let site = site_with(vec![HandlerBinding {
+            id: 0,
+            function: Some("greet".into()),
+        }]);
+        let functions = vec![
+            TranslatedFunction {
+                name: "unused".into(),
+                rust: "fn unused() {}".into(),
+            },
+            TranslatedFunction {
+                name: "greet".into(),
+                rust: "fn greet() { helper(); }".into(),
+            },
+            TranslatedFunction {
+                name: "helper".into(),
+                rust: "fn helper() { inner() }".into(),
+            },
+            TranslatedFunction {
+                name: "inner".into(),
+                rust: "fn inner() {}".into(),
+            },
+        ];
+        let guest = generate_guest_crate("app", "1.0.0", &site, &[], "", None, &[], &functions);
+        // Every function the call chain reaches is emitted, so the guest links.
+        assert!(guest.lib_rs.contains("fn greet()"));
+        assert!(guest.lib_rs.contains("fn helper()"));
+        assert!(guest.lib_rs.contains("fn inner()"));
+        assert!(
+            !guest.lib_rs.contains("fn unused()"),
+            "unreached code stays out"
+        );
+    }
+
+    #[test]
+    fn call_detection_needs_a_whole_identifier_followed_by_a_paren() {
+        assert!(calls("helper();", "helper"));
+        assert!(calls("x = helper ()", "helper"));
+        assert!(!calls("myhelper();", "helper"));
+        assert!(!calls("helper_two();", "helper"));
+        assert!(!calls("let helper = 1;", "helper"));
     }
 
     #[test]
