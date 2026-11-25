@@ -33,6 +33,21 @@ All notable changes to this project are documented here. The format follows
   sums to a GitHub release.
 - Repository templates: bug report and feature request issue forms, a pull
   request template, and Dependabot configuration for Cargo and GitHub Actions.
+- `helix new <dir> --template basic|network|storage`: guest crate templates, each with
+  a `capabilities` grant manifest and its own `wit/helix.wit`.
+- `examples/`: hello-static, todo-crud, chart-dashboard, video-player, and a
+  legacy-js-app before/after pair. Each one runs as a test.
+- `docs/`: getting started, guest authoring, capability manifest reference, and
+  migration guide with a coverage and limits table.
+- `deny.toml` and a `deny` CI job: license, ban, source, and advisory checks.
+- `helix manifest <wasm> [--diff <old>]`: infers a component's grants from its
+  imports, and reports grants added by an update (spec §10.1, §10.2).
+- `helix keygen`, `helix bundle`, and `helix verify`: Ed25519-signed,
+  content-addressed app bundles that verify offline against a trusted key (spec §10.4).
+- `helix migrate --confidence` and `--check`: a confidence block, and a wasm32 build of
+  the written crate (spec §10.3).
+- `spec.txt` §10 specifies the seven innovation candidates. Each entry records the
+  recommended decision and its status.
 
 ### Changed
 
@@ -42,5 +57,14 @@ All notable changes to this project are documented here. The format follows
 - `tpt-helix-migrate::discover` now runs the tree-sitter AST frontend (TypeScript
   grammar) instead of a line-based token scanner. Imports, exports, and functions
   are parsed structurally, so comments and string contents no longer confuse it.
+- `js_bridge::BridgeSession`: each legacy-JS app gets its own host state and batch
+  buffer. The `install_*` functions take a session, and `BridgeSession::for_app`
+  routes calls through the capability broker. Breaking change for direct callers.
+- `spec.txt` §5.2 carries a verbatim copy of `helix.wit`, checked by a test.
+- Generated guest crates embed `wit/helix.wit` and no longer reference the
+  repository layout. Their `Cargo.toml` names the license explicitly, so they build
+  outside a workspace. This was a defect: `migrate --check` found it.
+- AppFront paints relative to the render panel, colours are straight-alpha, and
+  layout is cached per surface size. Clicks are hit-tested to the innermost element.
 - Minimum supported Rust version is declared as `rust-version = "1.96.1"`, the
   pinned toolchain, in every workspace crate.

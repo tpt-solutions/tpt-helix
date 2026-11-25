@@ -15,6 +15,10 @@
 //! Because the package is `helix:runtime`, generated modules live under
 //! `helix::runtime` (package ID => module path).
 
+/// The canonical WIT source (`wit/helix.wit`), embedded so generated guest crates
+/// can ship their own copy of the interfaces they are built against.
+pub const HELIX_WIT: &str = include_str!("../wit/helix.wit");
+
 // Guest bindings: a guest component imports these capabilities.
 wit_bindgen::generate!({
     world: "helix-guest",

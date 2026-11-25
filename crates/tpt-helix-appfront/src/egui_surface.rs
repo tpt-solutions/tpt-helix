@@ -8,19 +8,52 @@
 
 use eframe::egui;
 
-use crate::layout::HelixDocument;
+use crate::layout::{FrameCache, HelixDocument, HitBox};
 use crate::render::RenderItem;
+
+/// A primary-button click on the render surface.
+///
+/// `node` is the pre-order index of the DOM node under the pointer (the
+/// innermost box), and `tag` its tag name. The host maps this to whatever it
+/// dispatches to; AppFront itself has no guest handler table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClickEvent {
+    pub node: usize,
+    pub tag: String,
+    /// Pointer position in surface coordinates (origin at the render surface's top-left).
+    pub x: f32,
+    pub y: f32,
+}
 
 /// The AppFront application: an `egui` window hosting a single Helix document.
 pub struct AppFront {
     doc: HelixDocument,
+    cache: FrameCache,
+    on_click: Option<Box<dyn FnMut(ClickEvent)>>,
 }
 
 impl AppFront {
     pub fn new(_cc: &eframe::CreationContext<'_>, source: String) -> Self {
         AppFront {
             doc: HelixDocument::parse(&source),
+            cache: FrameCache::new(),
+            on_click: None,
         }
+    }
+
+    /// Installs the callback that receives clicks on the render surface.
+    pub fn on_click(mut self, handler: impl FnMut(ClickEvent) + 'static) -> Self {
+        self.on_click = Some(Box::new(handler));
+        self
+    }
+}
+
+fn hit_to_click(hit: &HitBox, x: f32, y: f32) -> ClickEvent {
+    ClickEvent {
+        node: hit.node,
+        tag: hit.tag.clone(),
+        x,
+        y,
     }
 }
 
@@ -36,15 +69,22 @@ impl eframe::App for AppFront {
         // drives the `taffy` layout, and the result is painted with the `egui`
         // painter — the actual bridge between the two trees.
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Layout is in surface coordinates; the panel sits below the header,
+            // so every item is painted relative to the panel's top-left corner.
+            let panel = ui.max_rect();
+            let origin = panel.min;
             let size = ui.available_size();
-            let items = self.doc.render(size.x, size.y);
+            // Re-laid out only when the surface size changes.
+            let frame = self.cache.frame(&self.doc, size.x, size.y);
             let painter = ui.painter();
 
-            for item in items {
+            for item in &frame.items {
                 match item {
                     RenderItem::Rect(r) => {
-                        let rect =
-                            egui::Rect::from_min_size(egui::pos2(r.x, r.y), egui::vec2(r.w, r.h));
+                        let rect = egui::Rect::from_min_size(
+                            origin + egui::vec2(r.x, r.y),
+                            egui::vec2(r.w, r.h),
+                        );
                         let fill = rgba(r.fill);
                         if let Some(bc) = r.border_color {
                             painter.rect(rect, r.radius, fill, (r.border_width, rgba(bc)));
@@ -54,7 +94,7 @@ impl eframe::App for AppFront {
                     }
                     RenderItem::Text(t) => {
                         painter.text(
-                            egui::pos2(t.x, t.y),
+                            origin + egui::vec2(t.x, t.y),
                             egui::Align2::LEFT_TOP,
                             &t.text,
                             egui::FontId::proportional(t.size),
@@ -63,12 +103,28 @@ impl eframe::App for AppFront {
                     }
                 }
             }
+
+            // Primary clicks inside the surface go to the innermost box under
+            // the pointer.
+            if let Some(handler) = self.on_click.as_mut()
+                && ui.input(|i| i.pointer.primary_clicked())
+                && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+                && panel.contains(pos)
+            {
+                let local = pos - origin;
+                if let Some(hit) = frame.hit_test(local.x, local.y) {
+                    handler(hit_to_click(hit, local.x, local.y));
+                }
+            }
         });
     }
 }
 
+/// Converts a Helix colour to egui. Helix colours are straight (non-premultiplied)
+/// RGBA, so they must use `from_rgba_unmultiplied`; `from_rgba_premultiplied`
+/// would darken any partially transparent fill.
 fn rgba(c: [u8; 4]) -> egui::Color32 {
-    egui::Color32::from_rgba_premultiplied(c[0], c[1], c[2], c[3])
+    egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3])
 }
 
 /// Opens the native AppFront window and renders `source`.

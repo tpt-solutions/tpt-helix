@@ -1,0 +1,46 @@
+# cargo-deny policy for the workspace. CI runs `cargo deny check` (see
+# .github/workflows/ci.yml). Advisories come from the RustSec database, so that
+# check needs network access; licenses, bans, and sources run offline.
+
+[advisories]
+version = 2
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+# Permissive licenses only. The project is MIT OR Apache-2.0, so dependencies
+# must be usable under it.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "0BSD",
+    "BSL-1.0",
+    "MPL-2.0",
+]
+
+# Scoped exception: the bundled egui font crate is OFL-1.1 / UFL-1.0. Only that
+# crate gets these licenses, so no other dependency can use them silently.
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "LicenseRef-UFL-1.0"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace path dependencies also carry an explicit `version` (see crates/*/Cargo.toml).
+
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

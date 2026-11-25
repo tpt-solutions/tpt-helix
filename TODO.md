@@ -517,19 +517,26 @@ fix should start with a failing regression test. WIT/spec changes go in
       `MAX_CSS_BLOCK_DEPTH` pre-scan and `MAX_SELECTOR_NESTING`, which fixed stack
       overflows found by `hostile_depth_tests`; `html.rs`: walkers stop at the first
       match and 5,000-deep markup parses, covered by `hostile_depth_tests`)
-- [ ] Cap JS bridge batch ops and per-app guest state (elements, handlers, storage);
+- [x] Cap JS bridge batch ops and per-app guest state (elements, handlers, storage);
       isolate bridge state per app and route it through the broker
-      (done: `MAX_BATCH_OPS` with atomic reject as a RangeError in `js_bridge.rs`;
-      `MAX_ELEMENTS`/`MAX_CLICK_HANDLERS`/`MAX_STORAGE_*` in `stub.rs`. Open: bridge
-      state is still one thread-local, with no per-app isolation and no broker routing)
+      (`MAX_BATCH_OPS` with atomic reject as a RangeError in `js_bridge.rs`;
+      `MAX_ELEMENTS`/`MAX_CLICK_HANDLERS`/`MAX_STORAGE_*` in `stub.rs`. Isolation:
+      `js_bridge::BridgeSession` owns its own `RuntimeState` and batch buffer, and the
+      `install_*` functions take a session, so the JS path no longer touches the
+      thread-local host. `BridgeSession::for_app` routes every storage, network, and DOM
+      call through the capability broker. Tests: `sessions_do_not_share_dom_or_storage`,
+      `brokered_session_denies_storage_until_granted`, `tests/bridge_conformance.rs`.
+      The WIT `RuntimeStub` keeps its thread-local state for the conformance tests)
 - [x] Add hostile-input tests: DASH segment explosion, deep nesting, oversized
       frames, and unit tests for `stub.rs`/`wasm.rs`
       (DASH explosion, HTML/CSS/layout deep nesting, oversized libp2p frames, `stub.rs`
       guest-state caps, `wasm.rs` limiter and default-deny tests)
 
 ### WIT / migration correctness (spec §5.2, §6)
-- [ ] Reconcile `spec.txt` §5.2 WIT blocks (duplicated/garbled, undefined types,
+- [x] Reconcile `spec.txt` §5.2 WIT blocks (duplicated/garbled, undefined types,
       world name `helix` vs `helix-guest`) with `helix.wit`
+      (§5.2 now carries a verbatim copy of `helix.wit` between `[BEGIN helix.wit]`
+      and `[END helix.wit]`. `crates/tpt-helix-wit/tests/spec_sync.rs` fails on any drift)
 - [ ] Add the missing DOM events (`submit`, `change`, `input`, `play`, `pause`,
       `ended`) or a generic `on-event`, plus a host->guest `dispatch` export
       (done: `dom.on-event(el, event, handler-id)` in `helix.wit`, implemented on the stub
@@ -547,8 +554,14 @@ fix should start with a failing regression test. WIT/spec changes go in
       translated handler makes. Open: the test is `#[ignore]`d because it needs the wasm32
       target and `wasm-tools`. CI's `wasm-guest` job installs `wasm-tools` (pinned to
       1.263.0) and runs both ignored tests.
-- [ ] Generate the guest world from (or check it against) `helix.wit`; remove the
+- [x] Generate the guest world from (or check it against) `helix.wit`; remove the
       hard-coded `../tpt-helix-wit/wit` path in generated and example crates
+      (generated guest crates now carry their own `wit/helix.wit`, embedded from
+      `tpt_helix_wit::HELIX_WIT`, and bind with `path: "wit"`. `spark.rs`, `transpile.rs`,
+      and the CLI's `write_guest_crate` write it. `guest_build` compiles all 6 patterns
+      from the crate-local WIT. Deliberately kept: `tpt-helix-guest-example` and
+      `tpt-helix-runtime` still use `../tpt-helix-wit/wit`, the single canonical copy
+      inside the repo)
 - [ ] Make `coverage.rs` `supported()` compile the generated guest crate so the
       "6/6 patterns" figure is meaningful; add screenshot-diff equivalence (S3)
       (partly done: `tests/guest_build.rs` compiles each pattern's generated guest for
@@ -586,6 +599,14 @@ fix should start with a failing regression test. WIT/spec changes go in
       `tests/discovery.rs` and `tree_sitter_discovery.rs`)
 - [ ] appfront: use `from_rgba_unmultiplied`, cache layout per size, and route egui
       input events to guest `on-click`
+      (done: colours use `from_rgba_unmultiplied`; a `FrameCache` relays out only when
+      the surface size changes; paint is offset by the panel origin, which the old code
+      missed; `Frame::hit_test` finds the innermost box, including unpainted elements;
+      primary clicks invoke `AppFront::on_click` with a `ClickEvent`. Note that
+      `parse_color` has no `rgba()` support, so every CSS colour is opaque today and the
+      premultiplied bug was latent. Open: AppFront has no guest handle, so the host must
+      map `ClickEvent::node` to a runtime element and dispatch its handler. That mapping
+      does not exist yet. `cargo check -p tpt-helix-appfront --features window` passes; the window itself has not been run on a display)
 
 ### Observability and hygiene (spec §7, §9 developer tooling)
 - [x] Wire `profiler.rs` into `wasm.rs` and `layout.rs`; fix `mean()` u32 clamp and
@@ -598,14 +619,19 @@ fix should start with a failing regression test. WIT/spec changes go in
       `js_bridge.rs`/`stub.rs` (no scaffold remained; header wording updated)
 
 ### Adoption and developer experience (spec §9 roadmap: developer tooling)
-- [ ] New `helix-cli` crate: `run`, `render` (headless PNG), `migrate --report`,
-      `new`, `build`, `doctor`
-- [ ] `examples/`: hello-static (P1), todo-crud (P2), chart-dashboard (P3),
+- [x] New `helix-cli` crate: `run`, `render` (headless PNG), `migrate --report`,
+      `new`, `build`, `doctor` (all six subcommands present; `new --template` added)
+- [x] `examples/`: hello-static (P1), todo-crud (P2), chart-dashboard (P3),
       video-player (P4), legacy-js-app before/after; each run as a CI test
-- [ ] `templates/`: guest-basic, guest-network, guest-storage with capability
-      manifests, consumed by `helix new`
-- [ ] Docs: getting-started, guest authoring guide, capability manifest reference,
-      migration guide with coverage/limits table
+      (`crates/tpt-helix-cli/tests/examples.rs`. `legacy-js-app/after` is generated by
+      the CLI, and the test fails if the generator's output drifts from it)
+- [x] `templates/`: guest-basic, guest-network, guest-storage with capability
+      manifests, consumed by `helix new` (`helix new <dir> --template basic|network|storage`.
+      Each manifest is a `capabilities` file in `--grant` syntax, tested with
+      `parse_grants`. `tests/templates.rs` checks the scaffold, and the ignored test
+      compiles all three for wasm32)
+- [x] Docs: getting-started, guest authoring guide, capability manifest reference,
+      migration guide with coverage/limits table (`docs/`)
 - [x] Add `rust-toolchain.toml` + MSRV and document `wasm-tools` in the README
       (`rust-toolchain.toml` pins 1.96.1; `rust-version = "1.96.1"` in
       `Cargo.toml` `[workspace.package]`, inherited by every crate; README "Toolchain"
@@ -614,21 +640,47 @@ fix should start with a failing regression test. WIT/spec changes go in
       Dependabot (`CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`;
       `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.md`,
       `.github/PULL_REQUEST_TEMPLATE.md`, `.github/dependabot.yml`)
-- [ ] CI: tag-triggered release workflow (Linux/macOS/Windows binaries),
+- [x] CI: tag-triggered release workflow (Linux/macOS/Windows binaries),
       `cargo-deny`/`cargo-audit`, criterion benchmark tracking
-      (done: `.github/workflows/release.yml` builds the `helix` CLI for Linux x86_64,
-      macOS arm64 and Windows x86_64 on `v*` tags, attaches archives and SHA-256
-      sums to a GitHub release. Not yet run on a real tag. Open: `cargo-deny`/
-      `cargo-audit` job, and benchmark tracking in CI)
+      (`.github/workflows/release.yml` builds the `helix` CLI for Linux x86_64,
+      macOS arm64 and Windows x86_64 on `v*` tags and attaches archives and SHA-256
+      sums. `deny.toml` and a `deny` job in `ci.yml` cover licenses, bans, sources, and
+      RustSec advisories; the offline checks pass locally. A `bench` job in `ci.yml`
+      runs the criterion layout benchmark on master pushes and uploads the results.
+      None of these has run on GitHub yet: the release on a real tag, the advisories
+      check, and the bench job)
 
-### Innovation candidates (need spec entries before implementation)
-- [ ] Capability manifest inference (learn mode / static scan -> minimal manifest)
+### Innovation candidates (specified in `spec.txt` §10 before implementation)
+- [x] Capability manifest inference (learn mode / static scan -> minimal manifest)
+      (spec §10.1. `runtime/src/manifest.rs` maps a component's imported `helix:runtime`
+      interfaces to grants. `helix manifest <wasm>` prints them. Tests in
+      `manifest::tests` and `tpt-helix-cli/tests/manifest.rs`, against the componentized
+      guest example. Learn mode from a live run is not built: the static scan is the
+      recommended design)
 - [ ] Migration confidence report with compile check and screenshot diff
+      (spec §10.3. Done: `helix migrate --confidence` prints pattern, equivalence,
+      warning count, and compile status. `--check --out <dir>` builds the written crate
+      for wasm32 and fails on error. Open: the screenshot diff, which needs a `DomOp` to
+      HTML mapping and a pixel comparison with `render_html`)
 - [ ] Deterministic host-call record/replay for tests and bug reports
+      (spec §10.5. Specified, not implemented. It needs a recorder at the host boundary
+      that touches every `Guest` impl)
 - [ ] `helix dev` hot-reload server preserving DOM/storage state
+      (spec §10.6. Specified, not implemented. Durable per-app storage does not exist yet)
 - [ ] Capability-diff prompt on app update
-- [ ] Signed content-addressed app bundles (CID manifest, offline verify)
+      (spec §10.2. Done: `helix manifest <new> --diff <old>` lists added and removed
+      grants and exits 2 when an update adds one. Open: the user prompt. The runtime
+      computes the diff, and the prompt is UI outside this crate)
+- [x] Signed content-addressed app bundles (CID manifest, offline verify)
+      (spec §10.4. `helix keygen`, `helix bundle <dir> --key <file>`, and
+      `helix verify <dir> --trust <file>`. The manifest lists each file's SHA-256. Ed25519
+      signs the canonical manifest, and the content id is its SHA-256. Verification needs
+      the trusted key from the caller, and a key embedded in the bundle is never trusted.
+      Tests in `bundle::tests` cover tampering, added files, a forged key, and a key
+      mismatch)
 - [ ] Web/WASM migration playground (JS on the left, generated guest on the right)
+      (spec §10.7. Specified, deferred until the tree-sitter grammars build for wasm32,
+      which is unverified)
 
 ## Open Questions to Resolve (Section 10)
 

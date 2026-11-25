@@ -28,6 +28,10 @@ pub struct GuestCrate {
     pub lib_rs: String,
     /// `helix-guest.wit` world contents.
     pub world_wit: String,
+    /// `wit/helix.wit`: the interface definitions the guest is generated against.
+    /// The generated `wit_bindgen::generate!` reads them from the crate's own
+    /// `wit/` directory, so the crate builds wherever it is written.
+    pub helix_wit: String,
 }
 
 /// The guest's `dispatch` export: a match from handler id to the translated
@@ -80,7 +84,8 @@ fn render_cargo_toml(name: &str, version: &str, targets: &[TargetPlatform]) -> S
     s.push_str(&format!("name = \"{name}\"\n"));
     s.push_str(&format!("version = \"{version}\"\n"));
     s.push_str("edition = \"2024\"\n");
-    s.push_str("license.workspace = true\n");
+    // Explicit, so the crate builds when it is written outside a workspace.
+    s.push_str("license = \"MIT OR Apache-2.0\"\n");
     s.push_str("publish = false\n\n");
     s.push_str("[lib]\n");
     s.push_str("crate-type = [\"cdylib\"]\n\n");
@@ -186,6 +191,7 @@ pub fn generate_guest_crate(
         cargo_toml,
         lib_rs,
         world_wit: site.wit_world.clone(),
+        helix_wit: tpt_helix_wit::HELIX_WIT.to_string(),
     }
 }
 
@@ -209,7 +215,7 @@ mod tests {
                 },
             ],
             rust_source:
-                "wit_bindgen::generate!({ world: \"helix-guest\", path: \"../tpt-helix-wit/wit\" });\n\n\
+                "wit_bindgen::generate!({ world: \"helix-guest\", path: \"wit\" });\n\n\
                  #[unsafe(no_mangle)]\n\
                  pub extern \"C\" fn run() {\n    use helix::runtime::dom;\n    let el0 = dom::create_element(&\"div\");\n    dom::set_text(el0, &\"hi\");\n}\n"
                     .into(),
@@ -244,6 +250,12 @@ mod tests {
         assert!(guest.lib_rs.contains("dom::set_text(el0, &\"hi\")"));
         assert!(guest.lib_rs.contains("pub mod features"));
         assert!(guest.world_wit.contains("export run: func()"));
+        // The crate carries the interfaces it is generated against, and its
+        // bindings read them from its own `wit/` directory.
+        assert_eq!(guest.helix_wit, tpt_helix_wit::HELIX_WIT);
+        assert!(guest.helix_wit.contains("world helix-guest"));
+        assert!(guest.lib_rs.contains("path: \"wit\""));
+        assert!(!guest.lib_rs.contains("tpt-helix-wit"));
     }
 
     #[test]

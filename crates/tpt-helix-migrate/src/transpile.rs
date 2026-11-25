@@ -1149,7 +1149,8 @@ impl Emitter {
 
     fn generate_rust(&self) -> String {
         let mut s = String::new();
-        s.push_str("wit_bindgen::generate!({\n    world: \"helix-guest\",\n    path: \"../tpt-helix-wit/wit\",\n});\n\n");
+        // `path` is the crate-local `wit/` directory written by `spark`.
+        s.push_str("wit_bindgen::generate!({\n    world: \"helix-guest\",\n    path: \"wit\",\n});\n\n");
         s.push_str(
             "#[unsafe(no_mangle)]\npub extern \"C\" fn run() {\n    use helix::runtime::dom;\n",
         );

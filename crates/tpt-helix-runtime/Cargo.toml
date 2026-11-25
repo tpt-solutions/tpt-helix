@@ -40,8 +40,10 @@ async-trait = { version = "0.1", optional = true }
 pollster = "0.3"
 bytemuck = { version = "1", features = ["derive"] }
 rquickjs = { version = "0.6", features = ["macro"] }
-tpt-helix-wit = { path = "../tpt-helix-wit" }
+tpt-helix-wit = { path = "../tpt-helix-wit", version = "0.1.0" }
 wasmtime = "46"
+# Same version wasmtime 46 uses, so component parsing adds no new crate.
+wasmparser = "0.253"
 sha2 = "0.10"
 url = "2"
 getrandom = "0.3"
@@ -50,7 +52,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
-tpt-helix-wit = { path = "../tpt-helix-wit" }
+tpt-helix-wit = { path = "../tpt-helix-wit", version = "0.1.0" }
 criterion = "0.5"
 boa_engine = "0.21"
 

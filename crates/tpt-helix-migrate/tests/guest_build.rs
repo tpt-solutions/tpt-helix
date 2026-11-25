@@ -1,8 +1,8 @@
 //! Compile-checks the guest crates the migration pipeline generates.
 //!
 //! Each supported pattern's fixture is migrated, and the generated crate is
-//! written into a temporary workspace shaped like the repository (so the
-//! `../tpt-helix-wit/wit` path inside the generated code resolves). Then
+//! written into a temporary workspace. The crate carries its own `wit/helix.wit`,
+//! so its bindings resolve without the repository layout. Then
 //! `cargo check --target wasm32-unknown-unknown` runs on it.
 //!
 //! The test is slow and needs the wasm32 target, so it is `#[ignore]`d. Run it
@@ -12,7 +12,7 @@
 //! cargo test -p tpt-helix-migrate --test guest_build -- --ignored --nocapture
 //! ```
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use tpt_helix_migrate::coverage::Pattern;
@@ -25,33 +25,15 @@ fn scratch_root() -> PathBuf {
     std::env::temp_dir().join("tpt-helix-guest-check")
 }
 
-fn repo_wit_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../tpt-helix-wit/wit")
-}
-
-fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let target = dst.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
-}
-
 /// Writes `guest` into a repo-shaped scratch workspace and runs `cargo check`
 /// for wasm32. Returns the tail of the compiler output on failure.
 fn check_generated(name: &str, guest: &GuestCrate) -> Result<(), String> {
     let root = scratch_root().join(name);
     let _ = std::fs::remove_dir_all(&root);
     let crate_dir = root.join("crates").join(name);
-    copy_dir(&repo_wit_dir(), &root.join("crates/tpt-helix-wit/wit"))
-        .map_err(|e| format!("copying WIT: {e}"))?;
     std::fs::create_dir_all(crate_dir.join("src")).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(crate_dir.join("wit")).map_err(|e| e.to_string())?;
+    std::fs::write(crate_dir.join("wit/helix.wit"), &guest.helix_wit).map_err(|e| e.to_string())?;
     // The generated manifest inherits `license` from its workspace, so the
     // scratch root is a workspace that defines it, with the guest as a member.
     let root_manifest = format!(

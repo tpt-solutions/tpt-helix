@@ -45,6 +45,10 @@ const BLOCK_TAGS: &[&str] = &[
 /// Per-node paint metadata attached during tree construction.
 #[derive(Debug, Clone, Default)]
 struct RenderMeta {
+    /// Pre-order index of the DOM node (elements and text), used for hit testing.
+    node: usize,
+    /// Lower-case tag name for elements; `#text` for text nodes.
+    tag: String,
     background: Option<[u8; 4]>,
     border_color: Option<[u8; 4]>,
     border_width: f32,
@@ -102,6 +106,7 @@ impl HelixDocument {
         };
         let root = tree.new_leaf(root_style).unwrap();
 
+        let mut next_node = 0usize;
         let top: Vec<NodeId> = dom
             .document
             .children
@@ -115,6 +120,7 @@ impl HelixDocument {
                     width,
                     [0, 0, 0, 255],
                     &mut metas,
+                    &mut next_node,
                 )
             })
             .collect();
@@ -132,14 +138,95 @@ impl HelixDocument {
     /// Lays out and renders the document into a flat list of draw items for a
     /// surface of `width`×`height`.
     pub fn render(&self, width: f32, height: f32) -> Vec<RenderItem> {
+        self.frame(width, height).items
+    }
+
+    /// Lays out the document for a `width`×`height` surface and returns both the
+    /// paint items and the hit boxes for every element.
+    pub fn frame(&self, width: f32, height: f32) -> Frame {
         let mut built = self.build(width, height);
-        built.render_items()
+        built.render_frame()
+    }
+}
+
+/// One laid-out DOM box, reported for every element and text node (painted or not).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HitBox {
+    /// Pre-order index of the DOM node.
+    pub node: usize,
+    /// Lower-case tag name (`#text` for text nodes).
+    pub tag: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl HitBox {
+    fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
+}
+
+/// The output of one layout pass: what to paint and what can be clicked.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Frame {
+    pub items: Vec<RenderItem>,
+    /// Boxes in pre-order: a parent always precedes its children.
+    pub hits: Vec<HitBox>,
+}
+
+impl Frame {
+    /// The deepest box containing `(x, y)` in surface coordinates. Pre-order
+    /// puts children after parents, so the last match is the innermost box
+    /// (and among siblings, the one painted on top).
+    pub fn hit_test(&self, x: f32, y: f32) -> Option<&HitBox> {
+        self.hits.iter().rev().find(|b| b.contains(x, y))
+    }
+}
+
+/// Reuses the last layout while the surface size is unchanged.
+///
+/// Building and laying out the tree re-parses the HTML, which is far more
+/// expensive than painting. A window redraws every frame, so the cache keeps a
+/// frame until the surface size changes.
+#[derive(Debug, Default)]
+pub struct FrameCache {
+    size: Option<(f32, f32)>,
+    frame: Frame,
+    layouts: usize,
+}
+
+impl FrameCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the frame for `doc` at `width`×`height`, laying out only if the
+    /// size differs from the cached one.
+    pub fn frame(&mut self, doc: &HelixDocument, width: f32, height: f32) -> &Frame {
+        if self.size != Some((width, height)) {
+            self.frame = doc.frame(width, height);
+            self.size = Some((width, height));
+            self.layouts += 1;
+        }
+        &self.frame
+    }
+
+    /// How many layout passes have run (for tests and diagnostics).
+    pub fn layouts(&self) -> usize {
+        self.layouts
     }
 }
 
 impl BuiltTree {
     /// Computes layout and emits render items rooted at the surface origin.
     pub fn render_items(&mut self) -> Vec<RenderItem> {
+        self.render_frame().items
+    }
+
+    /// Computes layout and emits paint items and hit boxes.
+    pub fn render_frame(&mut self) -> Frame {
         self.tree
             .compute_layout(
                 self.root,
@@ -149,9 +236,17 @@ impl BuiltTree {
                 },
             )
             .expect("taffy layout is infallible for finite available space");
-        let mut out = Vec::new();
-        emit(&self.tree, self.root, &self.metas, 0.0, 0.0, &mut out);
-        out
+        let mut frame = Frame::default();
+        emit(
+            &self.tree,
+            self.root,
+            &self.metas,
+            0.0,
+            0.0,
+            &mut frame.items,
+            &mut frame.hits,
+        );
+        frame
     }
 
     /// The number of nodes in the built tree (useful for tests).
@@ -169,10 +264,14 @@ fn build_node(
     max_width: f32,
     inherited_color: [u8; 4],
     metas: &mut HashMap<NodeId, RenderMeta>,
+    next_node: &mut usize,
 ) -> Option<NodeId> {
     match &handle.data {
         NodeData::Element { name, attrs, .. } => {
             let tag = name.local.to_string().to_ascii_lowercase();
+            // Assigned before the children so the index is pre-order.
+            let node_id = *next_node;
+            *next_node += 1;
             let mut classes = Vec::new();
             let mut inline = String::new();
             for attr in attrs.borrow().iter() {
@@ -193,12 +292,15 @@ fn build_node(
             let child_handles: Vec<Handle> = handle.children.borrow().iter().cloned().collect();
             let mut child_nodes = Vec::new();
             for ch in child_handles {
-                if let Some(n) = build_node(tree, ch, doc, max_width, child_color, metas) {
+                if let Some(n) = build_node(tree, ch, doc, max_width, child_color, metas, next_node)
+                {
                     child_nodes.push(n);
                 }
             }
 
             let meta = RenderMeta {
+                node: node_id,
+                tag: tag.clone(),
                 background: props.background,
                 border_color: props.border_color,
                 border_width: props.border_width.unwrap_or(0.0),
@@ -216,6 +318,8 @@ fn build_node(
             if trimmed.is_empty() {
                 return None;
             }
+            let node_id = *next_node;
+            *next_node += 1;
             let size = 16.0;
             let w = estimate_text_width(trimmed, size)
                 .min(max_width - 4.0)
@@ -230,6 +334,8 @@ fn build_node(
                 ..Default::default()
             };
             let meta = RenderMeta {
+                node: node_id,
+                tag: "#text".to_string(),
                 color: inherited_color,
                 text: Some(TextMeta {
                     content: trimmed.to_string(),
@@ -314,6 +420,7 @@ fn emit(
     offset_x: f32,
     offset_y: f32,
     out: &mut Vec<RenderItem>,
+    hits: &mut Vec<HitBox>,
 ) {
     let layout = match tree.layout(node) {
         Ok(l) => l,
@@ -325,6 +432,14 @@ fn emit(
     let h = layout.size.height;
 
     if let Some(meta) = metas.get(&node) {
+        hits.push(HitBox {
+            node: meta.node,
+            tag: meta.tag.clone(),
+            x,
+            y,
+            w,
+            h,
+        });
         if let Some(bg) = meta.background {
             out.push(RenderItem::Rect(RectItem {
                 x,
@@ -350,7 +465,7 @@ fn emit(
 
     if let Ok(children) = tree.children(node) {
         for child in children {
-            emit(tree, child, metas, x, y, out);
+            emit(tree, child, metas, x, y, out, hits);
         }
     }
 }

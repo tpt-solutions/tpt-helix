@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use tpt_helix_runtime::manifest;
 use tpt_helix_cli::{
-    CliError, all_required_ok, build_guest, doctor_checks, migrate_html, migration_report,
-    migration_warnings, new_project, parse_grants, render_html, run_module, write_guest_crate,
+    CliError, GuestTemplate, all_required_ok, build_guest, doctor_checks, migrate_html,
+    CompileCheck, confidence_report, diff_report, manifest_report, migration_report, migration_warnings, new_guest_project,
+    new_project, parse_grants, read_manifest, render_html, run_module, write_guest_crate,
 };
 
 #[derive(Parser)]
@@ -68,16 +70,63 @@ enum Cmd {
         /// Exit non-zero if the migration has any warnings.
         #[arg(long)]
         strict: bool,
+        /// Print the confidence block: pattern, equivalence, warnings, and compile status.
+        #[arg(long)]
+        confidence: bool,
+        /// Build the written crate for wasm32 (needs --out). Implies --confidence,
+        /// and exits non-zero if the build fails.
+        #[arg(long)]
+        check: bool,
     },
     /// Build a guest crate for wasm32-unknown-unknown.
     Build {
         #[arg(default_value = ".")]
         dir: PathBuf,
     },
-    /// Create a new static starter app.
+    /// Create a new starter app or guest crate.
     New {
         /// Directory to create.
         name: PathBuf,
+        /// `static` (an HTML page), or a guest template: `basic`, `network`,
+        /// or `storage`. Guest templates ship a `capabilities` grant list.
+        #[arg(long, default_value = "static")]
+        template: String,
+    },
+    /// Infer the capabilities a component needs from its imports (spec §10.1).
+    Manifest {
+        /// Component to inspect.
+        module: PathBuf,
+        /// Older component to compare against. Exits 2 when the new one adds a grant.
+        #[arg(long)]
+        diff: Option<PathBuf>,
+    },
+    /// Generate an Ed25519 signing key. Writes the 32-byte seed as hex to `out`
+    /// and prints the public key. Keep the seed file private.
+    Keygen {
+        /// File to write the seed to. Must not exist.
+        out: PathBuf,
+    },
+    /// Sign a directory as a content-addressed bundle (spec §10.4).
+    Bundle {
+        /// Directory to sign. Its files are hashed, and `bundle.json` is written into it.
+        dir: PathBuf,
+        /// File holding the signing seed (hex), from `helix keygen`.
+        #[arg(long)]
+        key: PathBuf,
+        /// App name recorded in the manifest (defaults to the directory name).
+        #[arg(long)]
+        app: Option<String>,
+        #[arg(long, default_value = "0.1.0")]
+        version: String,
+    },
+    /// Verify a signed bundle against a trusted public key (spec §10.4).
+    Verify {
+        /// Bundle directory to check.
+        dir: PathBuf,
+        /// File holding the trusted public key (hex). The key the bundle embeds is
+        /// never trusted on its own.
+        #[arg(long)]
+        trust: PathBuf,
     },
     /// Check the toolchain needed by the other commands.
     Doctor,
@@ -132,6 +181,8 @@ fn real_main() -> Result<ExitCode, CliError> {
             report,
             out,
             strict,
+            confidence,
+            check,
         } => {
             let html = std::fs::read_to_string(&input)?;
             let js_src = match js {
@@ -153,6 +204,10 @@ fn real_main() -> Result<ExitCode, CliError> {
             if report {
                 print!("{}", migration_report(&migration));
             }
+            if check && out.is_none() {
+                return Err(CliError("--check builds the generated crate; pass --out <dir>".into()));
+            }
+            let mut compile = CompileCheck::NotRun;
             if let Some(dir) = out {
                 let Some(guest) = guest else {
                     return Err(CliError(
@@ -161,6 +216,21 @@ fn real_main() -> Result<ExitCode, CliError> {
                 };
                 write_guest_crate(&dir, &guest)?;
                 println!("wrote guest crate to {}", dir.display());
+                if check {
+                    compile = match build_guest(&dir) {
+                        Ok(()) => CompileCheck::Passed,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            CompileCheck::Failed
+                        }
+                    };
+                }
+            }
+            if confidence || check {
+                print!("{}", confidence_report(&migration, compile));
+            }
+            if compile == CompileCheck::Failed {
+                return Ok(ExitCode::FAILURE);
             }
             if strict && !migration_warnings(&migration).is_empty() {
                 return Ok(ExitCode::FAILURE);
@@ -171,13 +241,78 @@ fn real_main() -> Result<ExitCode, CliError> {
             build_guest(&dir)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::New { name } => {
-            new_project(&name)?;
-            println!(
-                "created {}; try `helix render {}/index.html`",
-                name.display(),
-                name.display()
-            );
+        Cmd::New { name, template } => {
+            if template == "static" {
+                new_project(&name)?;
+                println!(
+                    "created {}; try `helix render {}/index.html`",
+                    name.display(),
+                    name.display()
+                );
+            } else {
+                let guest_template = GuestTemplate::parse(&template)?;
+                new_guest_project(&name, guest_template)?;
+                println!(
+                    "created {}; build with `helix build {}`, then run it with `helix run <module.wasm> --grant \"$(cat {}/capabilities)\"`",
+                    name.display(),
+                    name.display(),
+                    name.display()
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Manifest { module, diff } => {
+            let new = read_manifest(&module)?;
+            match diff {
+                None => {
+                    print!("{}", manifest_report(&new));
+                    Ok(ExitCode::SUCCESS)
+                }
+                Some(old_path) => {
+                    let old = read_manifest(&old_path)?;
+                    let d = manifest::diff(&old, &new);
+                    print!("{}", diff_report(&d));
+                    Ok(if d.requests_new_grants() {
+                        ExitCode::from(2)
+                    } else {
+                        ExitCode::SUCCESS
+                    })
+                }
+            }
+        }
+        Cmd::Keygen { out } => {
+            if out.exists() {
+                return Err(CliError(format!(
+                    "{} already exists; choose another path",
+                    out.display()
+                )));
+            }
+            let mut seed = [0u8; 32];
+            getrandom::fill(&mut seed)
+                .map_err(|e| CliError(format!("no OS randomness: {e}")))?;
+            let seed_hex = tpt_helix_cli::bundle::to_hex(&seed);
+            std::fs::write(&out, format!("{seed_hex}
+"))?;
+            let public = tpt_helix_cli::bundle::public_key_hex(&seed_hex)?;
+            println!("wrote seed to {} (keep it private)", out.display());
+            println!("public key: {public}");
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Bundle { dir, key, app, version } => {
+            let seed = std::fs::read_to_string(&key)?;
+            let app = app.unwrap_or_else(|| {
+                dir.file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "app".to_string())
+            });
+            let id = tpt_helix_cli::bundle::sign_bundle(&dir, &app, &version, &seed)?;
+            println!("signed {app} {version}; content id {id}");
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Verify { dir, trust } => {
+            let trusted = std::fs::read_to_string(&trust)?;
+            let v = tpt_helix_cli::bundle::verify_bundle(&dir, &trusted)?;
+            println!("verified {} {}; content id {}", v.app, v.version, v.content_id);
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Doctor => {

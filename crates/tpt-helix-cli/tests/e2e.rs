@@ -12,7 +12,7 @@
 //! cargo test -p tpt-helix-cli --test e2e -- --ignored --nocapture
 //! ```
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use tpt_helix_cli::{migrate_html, write_guest_crate};
@@ -21,20 +21,6 @@ use tpt_helix_runtime::wasm::{Host, Module, sandboxed_engine};
 
 fn scratch_root() -> PathBuf {
     std::env::temp_dir().join("tpt-helix-e2e")
-}
-
-fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let target = dst.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
 }
 
 fn run_tool(mut command: Command, what: &str) -> Result<(), String> {
@@ -59,15 +45,10 @@ fn a_migrated_click_handler_writes_storage_in_the_runtime() {
     let (_migration, guest) = migrate_html("notes", html, Some(js));
     let guest = guest.expect("a page with a button is supported");
 
-    // A workspace shaped like the repository, so the generated `../tpt-helix-wit/wit`
-    // path resolves to the real interface definitions.
+    // The generated crate carries its own `wit/helix.wit`, so no repository layout
+    // is needed for its bindings to resolve.
     let root = scratch_root().join("workspace");
     let _ = std::fs::remove_dir_all(&root);
-    copy_dir(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../tpt-helix-wit/wit"),
-        &root.join("crates/tpt-helix-wit/wit"),
-    )
-    .expect("copy WIT");
     write_guest_crate(&root.join("crates/notes"), &guest).expect("write guest crate");
     std::fs::write(
         root.join("Cargo.toml"),

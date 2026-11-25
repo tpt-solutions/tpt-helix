@@ -7306,8 +7306,14 @@ name = "tpt-helix-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "sha2",
  "tpt-helix-migrate",
  "tpt-helix-runtime",
+ "tpt-helix-wit",
 ]
 
 [[package]]
@@ -7322,6 +7328,7 @@ name = "tpt-helix-migrate"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "tpt-helix-wit",
  "tree-sitter",
  "tree-sitter-javascript",
  "tree-sitter-typescript",
@@ -7358,6 +7365,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "wasmparser 0.253.0",
  "wasmtime",
  "wgpu",
 ]
@@ -7914,6 +7922,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
  "semver 1.0.28",
+ "serde",
 ]
 
 [[package]]

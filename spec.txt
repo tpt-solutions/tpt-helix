@@ -154,7 +154,33 @@ User grants, not site requests. The user decides what an application receives, n
 Fine-grained, revocable. Capabilities are per-resource and can be revoked at any time.
 Composable. Capabilities can be delegated between modules.
 5.2 Capability Types (WIT Interfaces)
-// Example WIT interface definitions
+The canonical WIT is `crates/tpt-helix-wit/wit/helix.wit`, package `helix:runtime@0.1.0`.
+The block below is a verbatim copy. `crates/tpt-helix-wit/tests/spec_sync.rs` fails if the
+two diverge, so change `helix.wit` and this block together.
+
+Interfaces: `network` (fetch), `storage` (get/set/delete), `dom` (create-element, set-text,
+set-attribute, append-child, on-click, on-event), `media` (create-player, play, pause, seek).
+Worlds: `helix-host` exports all four interfaces, so the host implements them. `helix-guest`
+imports them and exports `run` and `dispatch(handler-id)`. The host calls `dispatch` for each
+handler an event triggers. Errors are plain `string`s. Callbacks cross the boundary as opaque
+`handler-id`s, not function values.
+
+[BEGIN helix.wit]
+// Helix Runtime WIT interfaces.
+//
+// These are the canonical capability interfaces a guest WASM module consumes
+// from the Helix Runtime host. They are the source of truth for the generated
+// host (`Guest` trait) and guest (call shim) bindings produced by
+// `wit_bindgen`.
+//
+// Package `helix:runtime@0.1.0` generates Rust modules under
+// `helix::runtime::{network, storage, dom}`.
+
+package helix:runtime@0.1.0;
+
+// ---------------------------------------------------------------------------
+// network
+// ---------------------------------------------------------------------------
 
 interface network {
     record request {
@@ -170,82 +196,56 @@ interface network {
         body: list<u8>,
     }
 
-    fetch: func(req: request) -> result<response, string>
+    // Issues a request and resolves to the response, or an error string
+    // describing why the (capability-scoped) request was rejected / failed.
+    fetch: func(req: request) -> result<response, string>;
 }
 
+// ---------------------------------------------------------------------------
+// storage
+// ---------------------------------------------------------------------------
+
 interface storage {
-    get: func(key: string) -> option<list<u8>>
-    set: func(key: string, value: list<u8>) -> result<_, string>
-    delete: func(key: string) -> result<_, string>
+    get: func(key: string) -> option<list<u8>>;
+    set: func(key: string, value: list<u8>) -> result<_, string>;
+    delete: func(key: string) -> result<_, string>;
 }
+
+// ---------------------------------------------------------------------------
+// dom
+// ---------------------------------------------------------------------------
 
 interface dom {
     record element-id {
         id: u64,
     }
 
-    create-element: func(tag: string) -> element-id
-    set-text: func(el: element-id, text: string)
-    set-attribute: func(el: element-id, name: string, value: string)
-    append-child: func(parent: element-id, child: element-id)
-    on-click: func(el: element-id, handler-id: u64)
+    create-element: func(tag: string) -> element-id;
+    set-text: func(el: element-id, text: string);
+    set-attribute: func(el: element-id, name: string, value: string);
+    append-child: func(parent: element-id, child: element-id);
+
+    // Registers a previously-declared click handler (identified by an opaque
+    // `handler-id`) against an element. The runtime invokes the handler when
+    // the element is activated. Callbacks cross the component boundary as
+    // handles/ids rather than first-class function values.
+    on-click: func(el: element-id, handler-id: u64);
+
+    // Registers a handler for a named DOM event such as `submit`, `change`,
+    // `input`, `play`, `pause`, or `ended`. The event name is lowercase ASCII
+    // letters, up to 32 bytes. Like `on-click`, the callback is an opaque id.
+    on-event: func(el: element-id, event: string, handler-id: u64);
 }
 
-// Authored WIT lives in `crates/helix-wit/wit/helix.wit`. The host
-// (`helix-runtime`) *exports* these interfaces (a guest *imports* them); the
-// package is `helix:runtime@0.1.0`, generating Rust modules under
-// `helix::runtime::{network, storage, dom}`. Errors are surfaced as plain
-// `string`s. Callbacks (`on-click`) cross the boundary as opaque `handler-id`s
-// rather than first-class function values.
-
-    record response {
-        status: u16,
-        headers: list<tuple<string, string>>,
-        body: list<u8>,
-    }
-
-    // Performs an HTTP-flavored request. Fails with `error` when the module
-    // lacks the network capability for `req.url` or the fetch cannot be made.
-    fetch: func(req: request) -> result<response, error>
-}
-
-interface storage {
-    // Shared error type surfaced by capability-checked operations.
-    type error = string
-
-    record key-value {
-        key: string,
-        value: list<u8>,
-    }
-
-    get: func(key: string) -> option<list<u8>>
-    set: func(key: string, value: list<u8>) -> result<_, error>
-    delete: func(key: string) -> result<_, error>
-}
-
-interface dom {
-    record element-id {
-        id: u64,
-    }
-
-    create-element: func(tag: string) -> element-id
-    set-text: func(el: element-id, text: string)
-    set-attribute: func(el: element-id, name: string, value: string)
-    append-child: func(parent: element-id, child: element-id)
-    // Registers the click handler identified by `handler-id`. `handler-id` is
-    // allocated and owned by the guest; the runtime invokes it (via the
-    // capability broker / wasmtime) when the event fires. Modeled as a
-    // guest-managed id rather than a WIT function reference so the host stub
-    // can be exercised without a live guest component.
-    on-click: func(el: element-id, handler-id: u64)
-}
-
-// Two worlds wrap the interfaces above (see `wit/helix.wit`):
-//   * world `helix`        — the guest world; guests *import* the interfaces.
-//   * world `helix-host`   — the host world; the Helix Runtime *exports* them
-//                            (generating the `Guest` traits the host fills in).
+// ---------------------------------------------------------------------------
+// media
+// ---------------------------------------------------------------------------
 
 interface media {
+    record player-handle {
+        handle: u64,
+    }
+
     record video-config {
         codec: string,  // "h264", "vp9", "av1"
         width: u32,
@@ -253,11 +253,49 @@ interface media {
         bitrate: u32,
     }
 
-    create-player: func(config: video-config) -> result<player-handle, error>
-    play: func(handle: player-handle)
-    pause: func(handle: player-handle)
-    seek: func(handle: player-handle, time-ms: u64)
+    // Creates a media player for the given configuration. Fails with an error
+    // string when the module lacks a `media` capability covering the requested
+    // resolution, or the configuration cannot be satisfied.
+    create-player: func(config: video-config) -> result<player-handle, string>;
+    play: func(handle: player-handle);
+    pause: func(handle: player-handle);
+    seek: func(handle: player-handle, time-ms: u64);
 }
+
+// ---------------------------------------------------------------------------
+// worlds
+// ---------------------------------------------------------------------------
+
+// The host (Helix Runtime) *exports* these capability interfaces: a guest
+// component imports them and calls them. `wit_bindgen` generates a `Guest`
+// trait per interface (under `host::exports`) that the native host implements.
+// Named `helix-host` to match the `world:` selector in `crates/tpt-helix-wit`.
+world helix-host {
+    export network;
+    export storage;
+    export dom;
+    export media;
+}
+
+// A guest module *imports* the same interfaces. `wit_bindgen` generates the
+// call shims (`helix::runtime::network::fetch`, etc.) a guest compiles against.
+// It also *exports* a `run` entry point that the host invokes after
+// instantiation to drive the module (see the smoke-test guest in
+// `crates/tpt-helix-guest-example` and the wasmtime host in `crates/tpt-helix-runtime`).
+// Named `helix-guest` (not `helix`) to avoid colliding with the `helix`
+// package namespace in wasmtime's codegen.
+world helix-guest {
+    import network;
+    import storage;
+    import dom;
+    import media;
+    export run: func();
+    // Called by the host once per handler that a DOM event triggers. The argument
+    // is the handler id the guest registered with `on-click` or `on-event`.
+    export dispatch: func(handler-id: u64);
+}
+[END helix.wit]
+
 5.3 Grant Flow
 User opens application
     │
@@ -415,3 +453,72 @@ TPT Spark — Local LLM inference
 TPT Boxcar — DevOps toolchain
 
 This document is a living specification. All components, timelines, and targets are subject to revision based on implementation feedback and ecosystem evolution.
+
+10. Specified Innovations
+Each entry below is the design for an innovation candidate listed in TODO.md. The
+decision recorded for each is the recommended option. Status says what the
+repository implements today.
+
+10.1 Capability Manifest Inference
+Problem: authors hand-write the grants a guest needs, and over-granting is the usual
+result. Decision: infer the manifest from the component's imports. A WASM component
+lists the WIT interfaces it imports. Each Helix interface (dom, network, storage,
+media) maps to one grant, and unknown imports are reported, not granted. The
+inferred set is the minimal manifest, because wit-bindgen only imports interfaces a
+guest calls.
+Command: `helix manifest <component.wasm>` prints the grants.
+Status: implemented (runtime `manifest` module, CLI `helix manifest`).
+
+10.2 Capability-Diff on Update
+Problem: an app update can silently request new capabilities. Decision: compare the
+inferred grants of the old and new component and report added and removed grants. A
+grant added by an update must be shown to the user before it applies. The runtime
+computes the diff; the grant prompt is a UI concern outside this crate.
+Command: `helix manifest <new.wasm> --diff <old.wasm>`. It exits with status 2 when a
+grant is added, so a release pipeline can require review.
+Status: implemented (runtime `manifest::diff`, CLI `--diff`). The user prompt is not built.
+
+10.3 Migration Confidence Report
+Problem: a migration report lists warnings but gives no single view of how far the
+generated guest can be trusted. Decision: the report records four independent facts:
+pattern fit, equivalence (S3), the count of warnings, and whether the generated crate
+compiles for wasm32 (checked only when requested). It does not combine them into a
+score, because a number would hide which check failed.
+Status: the report fields are implemented. The compile check runs in the CI test
+`guest_build`. The screenshot diff is not built. Its recommended design is to rebuild
+HTML from the S2 `DomOp` list, render both documents with `render_html`, and compare
+the PNGs pixel by pixel. That needs a `DomOp` to HTML mapping for every op kind.
+
+10.4 Signed Content-Addressed Bundles
+Problem: an app must be verifiable offline, with no registry or network. Decision:
+a bundle is a directory with a `bundle.json` that lists each file's relative path and
+SHA-256, the app name and version, and an Ed25519 signature over the canonical
+manifest bytes. The manifest's SHA-256 is the bundle's content id. Verification
+recomputes every file hash and checks the signature against the public key in the
+bundle. A key the verifier does not trust must be rejected by the caller, so the
+bundle carries no trust decision of its own.
+Commands: `helix bundle <dir> --key <seed-hex>` and `helix verify <dir> [--trust <pubkey-hex>]`.
+Status: implemented (CLI `bundle` module).
+
+10.5 Deterministic Host-Call Record and Replay
+Problem: a bug seen in the field cannot be reproduced. Decision: record every
+host-call result (dom, storage, network, media) as an ordered trace. Replay feeds the
+recorded results back, so the same guest run is reproducible. Traces record results,
+not timing, so replay does not depend on the clock.
+Status: not implemented. It needs a recorder inside the host boundary, which touches
+every `Guest` impl, so it is a separate change.
+
+10.6 Hot-Reload Development Server
+Problem: each code change restarts the app and loses DOM and storage state. Decision:
+`helix dev` watches the component file and reloads it when it changes. Storage lives
+in a per-app directory, so it survives the reload. The DOM is rebuilt by `run`, not
+preserved, because the guest owns its DOM.
+Status: not implemented. Durable per-app storage does not exist yet, and the storage
+backend needs a design of its own.
+
+10.7 Web/WASM Migration Playground
+Problem: developers cannot see what a migration produces without running the CLI.
+Decision: a static page with the JS source on the left and the generated guest on the
+right. The migration runs in the browser, so the page needs no server. The migrate
+crate's tree-sitter grammars must build for wasm32 first, which is unverified.
+Status: not implemented. It is deferred until the tree-sitter wasm build is verified.

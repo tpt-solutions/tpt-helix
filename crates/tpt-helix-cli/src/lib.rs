@@ -13,6 +13,8 @@
 //! * [`new_project`] — scaffold a static starter app (`helix new`).
 //! * [`doctor_checks`] — toolchain readiness report (`helix doctor`).
 
+pub mod bundle;
+
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -27,6 +29,7 @@ use tpt_helix_runtime::css::parse_stylesheet;
 use tpt_helix_runtime::display_list::build_display_list;
 use tpt_helix_runtime::html::{inline_styles, parse_html};
 use tpt_helix_runtime::layout::{build_layout_tree, compute};
+use tpt_helix_runtime::manifest::{self, GrantDiff, Manifest};
 use tpt_helix_runtime::software_raster::{encode_png, rasterize_display_list};
 use tpt_helix_runtime::wasm::{Host, Module, sandboxed_engine};
 
@@ -240,8 +243,42 @@ pub fn migration_warnings(m: &OrchestratedMigration) -> Vec<String> {
     m.warnings()
 }
 
-/// Writes a generated guest crate under `dir` (`Cargo.toml`, `src/lib.rs`, and
-/// the WIT world file). Refuses to write into a non-empty existing directory.
+/// Whether the generated crate was built for wasm32 (spec §10.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileCheck {
+    /// `--check` was not requested.
+    NotRun,
+    Passed,
+    Failed,
+}
+
+/// The confidence block for a migration (spec §10.3). It lists four independent
+/// facts and gives no combined score, so a reader can see which check failed.
+pub fn confidence_report(m: &OrchestratedMigration, compile: CompileCheck) -> String {
+    let compile_line = match compile {
+        CompileCheck::NotRun => "not checked (pass --check with --out)",
+        CompileCheck::Passed => "ok",
+        CompileCheck::Failed => "FAILED",
+    };
+    format!(
+        "confidence:
+  pattern: {:?} ({:?})
+  equivalence (S3): {}
+  warnings: {}
+  compile (wasm32): {}
+",
+        m.plan.detected,
+        m.plan.confidence,
+        if m.equivalence_ok { "ok" } else { "FAILED" },
+        migration_warnings(m).len(),
+        compile_line
+    )
+}
+
+/// Writes a generated guest crate under `dir`: `Cargo.toml`, `src/lib.rs`, the
+/// world file, and `wit/helix.wit` (the interfaces the crate's bindings read, so
+/// it builds from wherever it is written). Refuses to write into a non-empty
+/// existing directory.
 pub fn write_guest_crate(dir: &Path, guest: &GuestCrate) -> Result<(), CliError> {
     if dir.exists() && fs::read_dir(dir)?.next().is_some() {
         return Err(err(format!(
@@ -250,10 +287,64 @@ pub fn write_guest_crate(dir: &Path, guest: &GuestCrate) -> Result<(), CliError>
         )));
     }
     fs::create_dir_all(dir.join("src"))?;
+    fs::create_dir_all(dir.join("wit"))?;
     fs::write(dir.join("Cargo.toml"), &guest.cargo_toml)?;
     fs::write(dir.join("src").join("lib.rs"), &guest.lib_rs)?;
     fs::write(dir.join("helix-guest.wit"), &guest.world_wit)?;
+    fs::write(dir.join("wit").join("helix.wit"), &guest.helix_wit)?;
     Ok(())
+}
+
+// --- manifest --------------------------------------------------------------
+
+/// Reads the capability manifest of the component at `path` (spec §10.1).
+pub fn read_manifest(path: &Path) -> Result<Manifest, CliError> {
+    let bytes = fs::read(path)?;
+    manifest::infer(&bytes).map_err(|e| err(format!("{}: {e}", path.display())))
+}
+
+/// The report `helix manifest` prints for one component.
+pub fn manifest_report(m: &Manifest) -> String {
+    let mut out = format!(
+        "grants: {}
+",
+        if m.grants.is_empty() {
+            "(none)".to_string()
+        } else {
+            m.grants_csv()
+        }
+    );
+    for import in &m.unknown_imports {
+        out.push_str(&format!(
+            "warning: `{import}` is not a Helix interface and will not be granted
+"
+        ));
+    }
+    out
+}
+
+/// The report `helix manifest --diff` prints (spec §10.2).
+pub fn diff_report(d: &GrantDiff) -> String {
+    let list = |grants: &[manifest::Grant]| {
+        if grants.is_empty() {
+            "(none)".to_string()
+        } else {
+            grants
+                .iter()
+                .map(|g| g.name())
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+    };
+    let mut out = format!("added: {}
+", list(&d.added));
+    out.push_str(&format!("removed: {}
+", list(&d.removed)));
+    if d.requests_new_grants() {
+        out.push_str("review: this update requests grants the previous version did not have
+");
+    }
+    out
 }
 
 // --- build -----------------------------------------------------------------
@@ -299,6 +390,96 @@ pub fn new_project(dir: &Path) -> Result<(), CliError> {
     }
     fs::create_dir_all(dir)?;
     fs::write(dir.join("index.html"), STARTER_HTML)?;
+    Ok(())
+}
+
+/// A guest starter that `helix new --template` scaffolds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuestTemplate {
+    /// A DOM-only guest. Grants: `dom`.
+    Basic,
+    /// A guest that fetches a URL. Grants: `dom,network`.
+    Network,
+    /// A guest that keeps a value in storage. Grants: `dom,storage`.
+    Storage,
+}
+
+impl GuestTemplate {
+    /// Parses a `--template` name (`basic`, `network`, or `storage`).
+    pub fn parse(name: &str) -> Result<Self, CliError> {
+        match name {
+            "basic" => Ok(GuestTemplate::Basic),
+            "network" => Ok(GuestTemplate::Network),
+            "storage" => Ok(GuestTemplate::Storage),
+            other => Err(err(format!(
+                "unknown template `{other}` (expected static, basic, network, storage)"
+            ))),
+        }
+    }
+
+    /// The template's `(Cargo.toml, src/lib.rs, capabilities)` sources.
+    fn sources(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            GuestTemplate::Basic => (
+                include_str!("../../../templates/guest-basic/Cargo.toml"),
+                include_str!("../../../templates/guest-basic/src/lib.rs"),
+                include_str!("../../../templates/guest-basic/capabilities"),
+            ),
+            GuestTemplate::Network => (
+                include_str!("../../../templates/guest-network/Cargo.toml"),
+                include_str!("../../../templates/guest-network/src/lib.rs"),
+                include_str!("../../../templates/guest-network/capabilities"),
+            ),
+            GuestTemplate::Storage => (
+                include_str!("../../../templates/guest-storage/Cargo.toml"),
+                include_str!("../../../templates/guest-storage/src/lib.rs"),
+                include_str!("../../../templates/guest-storage/capabilities"),
+            ),
+        }
+    }
+}
+
+/// Turns a directory name into a valid crate name: ASCII letters, digits, `-`
+/// and `_`, starting with a letter. Other characters become `-`.
+fn crate_name_for(dir: &Path) -> Result<String, CliError> {
+    let raw = dir
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let name: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return Err(err(format!(
+            "`{raw}` does not give a valid crate name; use a name that starts with a letter"
+        )));
+    }
+    Ok(name)
+}
+
+/// Scaffolds a guest crate in `dir` from `template`: `Cargo.toml`, `src/lib.rs`,
+/// `wit/helix.wit` (the canonical interfaces, so the crate builds on its own), and
+/// `capabilities`, the grant list to pass to `helix run --grant`. Fails if `dir`
+/// already exists.
+pub fn new_guest_project(dir: &Path, template: GuestTemplate) -> Result<(), CliError> {
+    if dir.exists() {
+        return Err(err(format!("{} already exists", dir.display())));
+    }
+    let name = crate_name_for(dir)?;
+    let (cargo, lib, capabilities) = template.sources();
+    fs::create_dir_all(dir.join("src"))?;
+    fs::create_dir_all(dir.join("wit"))?;
+    fs::write(dir.join("Cargo.toml"), cargo.replace("{{name}}", &name))?;
+    fs::write(dir.join("src").join("lib.rs"), lib.replace("{{name}}", &name))?;
+    fs::write(dir.join("capabilities"), capabilities)?;
+    fs::write(dir.join("wit").join("helix.wit"), tpt_helix_wit::HELIX_WIT)?;
     Ok(())
 }
 

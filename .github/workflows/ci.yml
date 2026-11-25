@@ -207,3 +207,44 @@ jobs:
           name: helix-appfront-linux-x86_64
           path: dist/helix-appfront-x86_64-unknown-linux-gnu
           if-no-files-found: error
+
+  # Supply-chain policy (deny.toml): license allow-list, banned or unknown
+  # sources, duplicate-version warnings, and RustSec advisories (needs network).
+  deny:
+    name: deny (licenses, bans, sources, advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  # Benchmark tracking (spec §7 performance targets). Runs the criterion layout
+  # benchmark on pushes to master and keeps the results as an artifact, so
+  # regressions can be compared across commits. Results are not gated here;
+  # `perf_regression.rs` enforces the §7.3 budget in the test job.
+  bench:
+    name: bench (layout, criterion)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run layout benchmark
+        run: cargo bench -p tpt-helix-runtime --bench layout_bench -- --save-baseline "${{ github.sha }}"
+
+      - name: Upload criterion results
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-layout-${{ github.sha }}
+          path: target/criterion
+          if-no-files-found: warn

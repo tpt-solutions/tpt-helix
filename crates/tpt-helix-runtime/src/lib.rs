@@ -9,6 +9,7 @@ pub mod html;
 pub mod js;
 pub mod js_bridge;
 pub mod layout;
+pub mod manifest;
 pub mod media_decode;
 pub mod p2p;
 #[cfg(feature = "libp2p")]

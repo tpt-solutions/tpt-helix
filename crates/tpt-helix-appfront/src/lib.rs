@@ -22,5 +22,5 @@ pub mod render;
 #[cfg(feature = "window")]
 pub mod egui_surface;
 
-pub use layout::HelixDocument;
+pub use layout::{Frame, FrameCache, HelixDocument, HitBox};
 pub use render::{RectItem, RenderItem, TextItem};

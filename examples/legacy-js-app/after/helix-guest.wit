@@ -1,0 +1,5 @@
+world helix-guest {
+    import dom;
+    export run: func();
+    export dispatch: func(handler-id: u64);
+}
