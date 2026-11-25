@@ -86,6 +86,8 @@ pub struct Response {
 pub const MAX_ELEMENTS: usize = 100_000;
 /// Total click handlers across all elements.
 pub const MAX_CLICK_HANDLERS: usize = 100_000;
+/// Longest accepted DOM event name, in bytes.
+pub const MAX_EVENT_NAME_BYTES: usize = 32;
 /// Distinct storage keys per app.
 pub const MAX_STORAGE_ENTRIES: usize = 10_000;
 /// Longest accepted storage key, in bytes.
@@ -115,8 +117,12 @@ pub struct RuntimeState {
     parents: HashMap<u64, Vec<u64>>,
     /// Click handler ids registered per element id.
     click_handlers: HashMap<u64, Vec<u64>>,
-    /// Total entries across `click_handlers`, kept so the cap check is O(1).
-    click_handler_total: usize,
+    /// Click and event handlers combined, so one cap bounds them both and the
+    /// check stays O(1).
+    handler_total: usize,
+    /// Handlers for named DOM events (`submit`, `change`, ...), keyed by element
+    /// and event name.
+    event_handlers: HashMap<(u64, String), Vec<u64>>,
     store: HashMap<String, Vec<u8>>,
     /// Canned fetch responses keyed by exact request URL.
     fetch_responses: HashMap<String, Response>,
@@ -335,14 +341,45 @@ impl RuntimeState {
     }
 
     pub fn on_click(&mut self, id: u64, handler_id: u64) {
-        if self.check_dom_target(id).is_err() {
+        if self.check_dom_target(id).is_err() || self.handler_total >= MAX_CLICK_HANDLERS {
             return;
         }
-        if self.click_handler_total >= MAX_CLICK_HANDLERS {
-            return;
-        }
-        self.click_handler_total += 1;
+        self.handler_total += 1;
         self.click_handlers.entry(id).or_default().push(handler_id);
+    }
+
+    /// Registers `handler_id` for DOM event `event` on element `id`. The event
+    /// name must be lowercase ASCII letters and at most
+    /// [`MAX_EVENT_NAME_BYTES`]; anything else is dropped.
+    pub fn on_event(&mut self, id: u64, event: String, handler_id: u64) {
+        // Clicks have their own registration (`on_click`), so `click` is refused here.
+        if !valid_event_name(&event)
+            || event == "click"
+            || self.check_dom_target(id).is_err()
+            || self.handler_total >= MAX_CLICK_HANDLERS
+        {
+            return;
+        }
+        self.handler_total += 1;
+        self.event_handlers
+            .entry((id, event))
+            .or_default()
+            .push(handler_id);
+    }
+
+    /// Handler ids registered for DOM event `event` on element `id`, in
+    /// registration order. `"click"` reads the click handlers; any other name
+    /// reads the event handlers.
+    pub fn handler_ids(&self, id: u64, event: &str) -> Vec<u64> {
+        if event == "click" {
+            self.click_handlers.get(&id).cloned().unwrap_or_default()
+        } else {
+            self.event_handler_ids(id, event).unwrap_or_default()
+        }
+    }
+
+    pub fn event_handler_ids(&self, id: u64, event: &str) -> Option<Vec<u64>> {
+        self.event_handlers.get(&(id, event.to_string())).cloned()
     }
 
     // --- media -------------------------------------------------------------
@@ -470,6 +507,13 @@ impl RuntimeState {
     }
 }
 
+/// Event names are lowercase ASCII letters, 1 to [`MAX_EVENT_NAME_BYTES`] bytes.
+fn valid_event_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_EVENT_NAME_BYTES
+        && name.bytes().all(|b| b.is_ascii_lowercase())
+}
+
 thread_local! {
     static STATE: RefCell<RuntimeState> = RefCell::new(RuntimeState::default());
 }
@@ -566,6 +610,10 @@ impl RuntimeStub {
         STATE.with(|s| s.borrow_mut().on_click(el.id, handler_id))
     }
 
+    pub fn on_event(el: WitElementId, event: String, handler_id: u64) {
+        STATE.with(|s| s.borrow_mut().on_event(el.id, event, handler_id))
+    }
+
     // --- media (stateless delegations mirroring the `Guest` trait) --------
 
     pub fn create_player(cfg: WitVideoConfig) -> Result<WitPlayerHandle, String> {
@@ -643,6 +691,10 @@ impl DomGuest for RuntimeStub {
     fn on_click(el: WitElementId, handler_id: u64) {
         Self::on_click(el, handler_id)
     }
+
+    fn on_event(el: WitElementId, event: String, handler_id: u64) {
+        Self::on_event(el, event, handler_id)
+    }
 }
 
 impl MediaGuest for RuntimeStub {
@@ -711,5 +763,68 @@ mod guest_state_cap_tests {
         // Overwriting an existing key does not grow the store, so it stays allowed.
         assert!(st.set("key-0".into(), vec![9]).is_ok());
         assert_eq!(st.stored("key-0"), Some(vec![9]));
+    }
+}
+
+#[cfg(test)]
+mod dom_event_tests {
+    use super::*;
+
+    #[test]
+    fn event_handlers_are_recorded_per_element_and_event() {
+        let mut st = RuntimeState::default();
+        let form = st.create_element("form".into());
+        st.on_event(form, "submit".into(), 7);
+        st.on_event(form, "change".into(), 8);
+        assert_eq!(st.event_handler_ids(form, "submit"), Some(vec![7]));
+        assert_eq!(st.event_handler_ids(form, "change"), Some(vec![8]));
+        assert_eq!(st.event_handler_ids(form, "input"), None);
+    }
+
+    #[test]
+    fn invalid_event_names_are_dropped() {
+        let mut st = RuntimeState::default();
+        let el = st.create_element("input".into());
+        st.on_event(el, String::new(), 1);
+        st.on_event(el, "Submit".into(), 2);
+        st.on_event(el, "on-click".into(), 3);
+        st.on_event(el, "x".repeat(MAX_EVENT_NAME_BYTES + 1), 4);
+        assert_eq!(st.handler_total, 0);
+    }
+
+    #[test]
+    fn event_handlers_share_the_cap_with_click_handlers() {
+        let mut st = RuntimeState::default();
+        let el = st.create_element("button".into());
+        for h in 0..MAX_CLICK_HANDLERS as u64 {
+            st.on_click(el, h);
+        }
+        st.on_event(el, "submit".into(), 1);
+        assert_eq!(st.event_handler_ids(el, "submit"), None);
+    }
+}
+
+#[cfg(test)]
+mod dispatch_lookup_tests {
+    use super::*;
+
+    #[test]
+    fn handler_ids_reads_click_and_event_handlers_by_name() {
+        let mut st = RuntimeState::default();
+        let el = st.create_element("form".into());
+        st.on_click(el, 1);
+        st.on_event(el, "submit".into(), 2);
+        assert_eq!(st.handler_ids(el, "click"), vec![1]);
+        assert_eq!(st.handler_ids(el, "submit"), vec![2]);
+        assert!(st.handler_ids(el, "change").is_empty());
+    }
+
+    #[test]
+    fn click_is_not_accepted_as_an_event_name() {
+        let mut st = RuntimeState::default();
+        let el = st.create_element("button".into());
+        st.on_event(el, "click".into(), 9);
+        assert!(st.handler_ids(el, "click").is_empty());
+        assert_eq!(st.handler_total, 0);
     }
 }

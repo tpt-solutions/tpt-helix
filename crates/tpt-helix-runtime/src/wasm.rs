@@ -195,6 +195,10 @@ impl DomHost for Host {
     fn on_click(&mut self, el: dom::ElementId, handler_id: u64) {
         self.state.on_click(el.id, handler_id);
     }
+
+    fn on_event(&mut self, el: dom::ElementId, event: String, handler_id: u64) {
+        self.state.on_event(el.id, event, handler_id);
+    }
 }
 
 impl MediaHost for Host {
@@ -333,6 +337,30 @@ impl Instance {
         let _span = self.profiler.span("wasm.call");
         self.bindings.call_run(&mut self.store)?;
         Ok(())
+    }
+
+    /// Calls the guest's exported `dispatch` for one handler id, under a fresh
+    /// fuel budget and epoch deadline. A trap is returned to the caller.
+    pub fn dispatch_handler(&mut self, handler_id: u64) -> Result<(), wasmtime::Error> {
+        let limits = self.store.data().limits;
+        self.store.set_fuel(limits.fuel_per_call)?;
+        self.store.set_epoch_deadline(limits.epoch_deadline_ticks);
+        let _span = self.profiler.span("wasm.dispatch");
+        self.bindings.call_dispatch(&mut self.store, handler_id)?;
+        Ok(())
+    }
+
+    /// Fires DOM event `event` on element `el`: each handler registered for it
+    /// is dispatched to the guest, in registration order. Returns how many ran.
+    ///
+    /// Dispatch stops at the first trap, and that trap is returned. Handlers
+    /// that already ran keep their effects. Events with no handlers do nothing.
+    pub fn fire_event(&mut self, el: u64, event: &str) -> Result<usize, wasmtime::Error> {
+        let handlers = self.store.data().state.handler_ids(el, event);
+        for handler_id in &handlers {
+            self.dispatch_handler(*handler_id)?;
+        }
+        Ok(handlers.len())
     }
 
     /// Execution profile for this instance (`wasm.call` timings).

@@ -15,7 +15,7 @@ All interfaces live in the package `helix:runtime@0.1.0`.
 | --- | --- | --- |
 | `network` | `fetch(request) -> result<response, string>` | `network` (host pattern) |
 | `storage` | `get`, `set`, `delete` on string keys | `storage` (namespace) |
-| `dom` | `create-element`, `set-text`, `set-attribute`, `append-child`, `on-click` | `dom` (full or subtree) |
+| `dom` | `create-element`, `set-text`, `set-attribute`, `append-child`, `on-click`, `on-event` | `dom` (full or subtree) |
 | `media` | `create-player`, `play`, `pause`, `seek` | `media` (resolution bound) |
 
 Each operation is checked by the host's capability broker. A guest cannot reach

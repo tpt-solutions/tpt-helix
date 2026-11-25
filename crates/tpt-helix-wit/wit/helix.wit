@@ -62,6 +62,11 @@ interface dom {
     // the element is activated. Callbacks cross the component boundary as
     // handles/ids rather than first-class function values.
     on-click: func(el: element-id, handler-id: u64);
+
+    // Registers a handler for a named DOM event such as `submit`, `change`,
+    // `input`, `play`, `pause`, or `ended`. The event name is lowercase ASCII
+    // letters, up to 32 bytes. Like `on-click`, the callback is an opaque id.
+    on-event: func(el: element-id, event: string, handler-id: u64);
 }
 
 // ---------------------------------------------------------------------------
@@ -117,4 +122,7 @@ world helix-guest {
     import dom;
     import media;
     export run: func();
+    // Called by the host once per handler that a DOM event triggers. The argument
+    // is the handler id the guest registered with `on-click` or `on-event`.
+    export dispatch: func(handler-id: u64);
 }

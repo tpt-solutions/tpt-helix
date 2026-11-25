@@ -5,6 +5,13 @@ All notable changes to `tpt-helix-wit` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `helix-guest` exports `dispatch(handler-id: u64)`, which the host calls for each
+  handler a DOM event triggers.
+- `dom.on-event(el, event, handler-id)`, a generic DOM event registration for
+  `submit`, `change`, `input`, `play`, `pause`, and `ended`. Event names are
+  lowercase ASCII, up to 32 bytes.
+
 ### Changed
 - Renamed the package from `helix-wit` to `tpt-helix-wit`. The WIT package
   `helix:runtime@0.1.0` is unchanged.

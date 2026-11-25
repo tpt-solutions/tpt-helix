@@ -5,9 +5,10 @@
 //! `network`, `storage`, and `dom` capability interfaces and *exports* `run`),
 //! and calls them as a real WASM component would.
 //!
-//! It targets `wasm32-unknown-unknown` and is componentized (see
-//! `crates/tpt-helix-runtime/build.rs`) into the smoke-test component the host
-//! loads through wasmtime.
+//! It targets `wasm32-unknown-unknown` and is componentized into the smoke-test
+//! component (`crates/tpt-helix-runtime/tests/hello_dom.wasm`) the host loads
+//! through wasmtime. It also exports `dispatch`, which the host calls for each
+//! handler a DOM event triggers.
 //!
 //! Build + componentize:
 //!   cargo build -p tpt-helix-guest-example --target wasm32-unknown-unknown
@@ -35,6 +36,7 @@ pub extern "C" fn run() {
     dom::set_attribute(root, &"class", &"greeting");
     dom::append_child(root, child);
     dom::on_click(root, 1);
+    dom::on_event(root, &"submit", 2);
 
     storage::set(&"seen", b"yes".as_slice()).expect("store");
 
@@ -44,4 +46,18 @@ pub extern "C" fn run() {
         headers: vec![],
         body: None,
     });
+}
+
+/// Host callback: runs the handler registered under `handler_id`. Handler 1 is
+/// the click registered in `run`, and handler 2 is its `submit` event. Each one
+/// records that it ran, so the host can observe the dispatch.
+#[unsafe(no_mangle)]
+pub extern "C" fn dispatch(handler_id: u64) {
+    use helix::runtime::storage;
+
+    match handler_id {
+        1 => storage::set(&"clicked", b"yes".as_slice()).expect("store"),
+        2 => storage::set(&"submitted", b"yes".as_slice()).expect("store"),
+        _ => {}
+    }
 }

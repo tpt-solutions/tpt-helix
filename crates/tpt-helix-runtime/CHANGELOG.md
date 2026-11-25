@@ -14,6 +14,10 @@ semantic versioning once it reaches 1.0.
 - `init_logging()` installs a `tracing` subscriber filtered by `RUST_LOG`.
 
 ### Added
+- `Instance::fire_event` and `Instance::dispatch_handler` call the guest's
+  `dispatch` export. A trap stops the dispatch and is returned.
+- `dom.on-event` on the stub and wasm hosts. Handlers are recorded per element and
+  event name, and share the `MAX_CLICK_HANDLERS` cap with click handlers.
 - Capability-denial audit log (target `helix::capability`) with a remediation
   hint for each denied capability.
 - `inline_styles()` collects the `<style>` blocks of a parsed document.
