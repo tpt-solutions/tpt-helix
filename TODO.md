@@ -614,9 +614,12 @@ fix should start with a failing regression test. WIT/spec changes go in
       the guest's DOM with each element's `data-helix-id`. A click's `ClickEvent::element`
       is that id (the deepest element under the pointer, so a text run reports its
       container), and the host dispatches `click_handler_ids(element)`. Tested headlessly
-      in `tests/click.rs`. Open: the `appfront` binary does not load a guest, so no window
-      dispatches yet. `cargo check -p tpt-helix-appfront --features window` passes; the
-      window has not been run on a display)
+      in `tests/click.rs`. `GuestSurface` runs a component and shows its page. Clicks bubble
+      from the element to its ancestors, as DOM events do, and a handler that changes the
+      DOM refreshes the page (`tests/guest.rs`, with the real `hello_dom` component). The
+      `appfront` binary takes a component and `--grant` / `--app`. Open: the window has
+      not been run on a display, so the egui wiring is only type-checked
+      (`cargo check -p tpt-helix-appfront --features window`))
 
 ### Render pipeline gaps (found by the migration screenshot check)
 - [x] Paint text. `text::draw_text` paints glyph coverage with cosmic-text's

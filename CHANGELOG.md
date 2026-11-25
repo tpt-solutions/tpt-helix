@@ -63,6 +63,9 @@ All notable changes to this project are documented here. The format follows
   buffer. The `install_*` functions take a session, and `BridgeSession::for_app`
   routes calls through the capability broker. Breaking change for direct callers.
 - `spec.txt` §5.2 carries a verbatim copy of `helix.wit`, checked by a test.
+- `appfront <component.wasm> --grant ... --app ...`: shows a guest's page. A click
+  bubbles from the element to its ancestors and runs their handlers, and a handler that
+  changes the DOM refreshes the page. `GuestSurface` is the headless part.
 - AppFront clicks carry the guest element under the pointer. `RuntimeState::document_html`
   renders the guest's DOM with `data-helix-id` on each element, so the host can dispatch
   that element's handlers.
