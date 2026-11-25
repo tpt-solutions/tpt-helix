@@ -610,9 +610,13 @@ fix should start with a failing regression test. WIT/spec changes go in
       missed; `Frame::hit_test` finds the innermost box, including unpainted elements;
       primary clicks invoke `AppFront::on_click` with a `ClickEvent`. Note that
       `parse_color` has no `rgba()` support, so every CSS colour is opaque today and the
-      premultiplied bug was latent. Open: AppFront has no guest handle, so the host must
-      map `ClickEvent::node` to a runtime element and dispatch its handler. That mapping
-      does not exist yet. `cargo check -p tpt-helix-appfront --features window` passes; the window itself has not been run on a display)
+      premultiplied bug was latent. Click routing: `RuntimeState::document_html` renders
+      the guest's DOM with each element's `data-helix-id`. A click's `ClickEvent::element`
+      is that id (the deepest element under the pointer, so a text run reports its
+      container), and the host dispatches `click_handler_ids(element)`. Tested headlessly
+      in `tests/click.rs`. Open: the `appfront` binary does not load a guest, so no window
+      dispatches yet. `cargo check -p tpt-helix-appfront --features window` passes; the
+      window has not been run on a display)
 
 ### Render pipeline gaps (found by the migration screenshot check)
 - [x] Paint text. `text::draw_text` paints glyph coverage with cosmic-text's

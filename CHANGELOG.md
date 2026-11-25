@@ -63,6 +63,13 @@ All notable changes to this project are documented here. The format follows
   buffer. The `install_*` functions take a session, and `BridgeSession::for_app`
   routes calls through the capability broker. Breaking change for direct callers.
 - `spec.txt` §5.2 carries a verbatim copy of `helix.wit`, checked by a test.
+- AppFront clicks carry the guest element under the pointer. `RuntimeState::document_html`
+  renders the guest's DOM with `data-helix-id` on each element, so the host can dispatch
+  that element's handlers.
+- The static renderer wraps text to its box, and lays out and paints text from the host's
+  fonts.
+- A parameterless function returning a number or a bool is typed from its inferred return
+  and dispatched by a handler.
 - Generated guest crates include every translated function a handler reaches,
   transitively. A handler that called a helper used to produce a guest that did not
   compile.
