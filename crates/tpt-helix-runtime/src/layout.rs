@@ -59,6 +59,10 @@ fn resolve_style(element: &DomElement, rules: &[StyleRule]) -> Style {
     for (_, _, rule) in matched {
         apply_declarations(&mut style, &rule.declarations_css);
     }
+    // Inline style comes last in the cascade, so it overrides the stylesheet.
+    if let Some(inline) = element.inline_style() {
+        apply_declarations(&mut style, &inline);
+    }
     style
 }
 

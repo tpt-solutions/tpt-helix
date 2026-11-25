@@ -60,14 +60,43 @@ fn background_color(element: &DomElement, rules: &[StyleRule]) -> Option<Color> 
     let mut color = None;
     for rule in rules {
         if rule.selectors.slice().iter().any(|s| matches(s, element)) {
-            for declaration in rule.declarations_css.split(';') {
-                if let Some((property, value)) = declaration.split_once(':')
-                    && property.trim() == "background-color"
-                    && let Some(parsed) = Color::parse_css(value.trim())
+            color = background_from_declarations(&rule.declarations_css, color);
+        }
+    }
+    // Inline style comes last in the cascade, so it overrides the stylesheet.
+    if let Some(inline) = element.inline_style() {
+        color = background_from_declarations(&inline, color);
+    }
+    color
+}
+
+/// Applies the background declarations in `declarations` to `current`. Handles
+/// `background-color` and the `background` shorthand when its value names a
+/// color (for example `background: #fff` or `background: url(a.png) red`).
+/// `background: none` clears the color. A later declaration wins.
+fn background_from_declarations(declarations: &str, current: Option<Color>) -> Option<Color> {
+    let mut color = current;
+    for declaration in declarations.split(';') {
+        let Some((property, value)) = declaration.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match property.trim() {
+            "background-color" => {
+                if let Some(parsed) = Color::parse_css(value) {
+                    color = Some(parsed);
+                }
+            }
+            "background" => {
+                if value.eq_ignore_ascii_case("none") {
+                    color = None;
+                } else if let Some(parsed) = Color::parse_css(value)
+                    .or_else(|| value.split_whitespace().rev().find_map(Color::parse_css))
                 {
                     color = Some(parsed);
                 }
             }
+            _ => {}
         }
     }
     color

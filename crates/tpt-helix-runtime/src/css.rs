@@ -291,6 +291,12 @@ impl DomElement {
             .and_then(|weak| weak.upgrade())
     }
 
+    /// The element's inline `style` attribute, if it has one. Inline declarations
+    /// are the highest-precedence source in the cascade.
+    pub fn inline_style(&self) -> Option<String> {
+        self.attr("style")
+    }
+
     fn attr(&self, name: &str) -> Option<String> {
         match &self.0.data {
             NodeData::Element { attrs, .. } => attrs

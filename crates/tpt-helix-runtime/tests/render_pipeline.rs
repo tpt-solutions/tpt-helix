@@ -141,3 +141,27 @@ fn composed_layout_regression_localizes_to_changed_region() {
         "change within col-b y: {bounds:?}"
     );
 }
+
+#[test]
+fn background_shorthand_paints_like_background_color() {
+    let raw = pipeline(
+        r#"<html><body><div class="box"></div></body></html>"#,
+        "div.box { width: 100px; height: 100px; background: #ff0000; }",
+        400,
+        300,
+    );
+    let img = image::RgbaImage::from_raw(400, 300, raw).expect("image");
+    assert_eq!(img.get_pixel(50, 50), &Rgba([255, 0, 0, 255]));
+}
+
+#[test]
+fn inline_style_paints_and_overrides_the_stylesheet() {
+    let raw = pipeline(
+        r#"<html><body><div class="box" style="background: #00ff00; width: 100px; height: 100px"></div></body></html>"#,
+        "div.box { width: 100px; height: 100px; background-color: #ff0000; }",
+        400,
+        300,
+    );
+    let img = image::RgbaImage::from_raw(400, 300, raw).expect("image");
+    assert_eq!(img.get_pixel(50, 50), &Rgba([0, 255, 0, 255]));
+}
