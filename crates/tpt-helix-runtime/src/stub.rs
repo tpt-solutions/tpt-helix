@@ -593,6 +593,25 @@ impl RuntimeState {
     pub fn click_handler_ids(&self, id: u64) -> Option<Vec<u64>> {
         self.click_handlers.get(&id).cloned()
     }
+
+    /// The element's ancestors, nearest first, following the first parent of each
+    /// element. Bounded, so a cycle of appended children ends the walk.
+    pub fn ancestors(&self, id: u64) -> Vec<u64> {
+        const MAX_DEPTH: usize = 256;
+        let mut out = Vec::new();
+        let mut current = id;
+        while out.len() < MAX_DEPTH {
+            let Some(parent) = self.parents.get(&current).and_then(|p| p.first().copied()) else {
+                break;
+            };
+            if parent == id || out.contains(&parent) {
+                break;
+            }
+            out.push(parent);
+            current = parent;
+        }
+        out
+    }
 }
 
 /// Event names are lowercase ASCII letters, 1 to [`MAX_EVENT_NAME_BYTES`] bytes.

@@ -284,8 +284,16 @@ fn text_wraps_to_the_width_of_its_box() {
     assert_eq!(runs.len(), 1);
     // Wrapped onto several lines, so taller than one 16px line, and never wider
     // than the 80px box it sits in.
-    assert!(runs[0].height > 25.0, "expected several lines, height {}", runs[0].height);
-    assert!(runs[0].width <= 80.0 + 0.5, "width {} exceeds the box", runs[0].width);
+    assert!(
+        runs[0].height > 25.0,
+        "expected several lines, height {}",
+        runs[0].height
+    );
+    assert!(
+        runs[0].width <= 80.0 + 0.5,
+        "width {} exceeds the box",
+        runs[0].width
+    );
     // Nothing is painted outside the box horizontally.
     let painted_right = img
         .enumerate_pixels()
@@ -293,6 +301,8 @@ fn text_wraps_to_the_width_of_its_box() {
         .map(|(x, _, _)| x)
         .max()
         .unwrap_or(0);
-    assert!(painted_right <= 81, "text painted past the box: x={painted_right}");
+    assert!(
+        painted_right <= 81,
+        "text painted past the box: x={painted_right}"
+    );
 }
-
