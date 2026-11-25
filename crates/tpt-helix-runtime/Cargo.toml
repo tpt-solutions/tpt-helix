@@ -25,7 +25,7 @@ html5ever = "0.39.0"
 lightningcss = "1.0.0-alpha.71"
 markup5ever_rcdom = "0.39.0"
 selectors = "0.39.0"
-cssparser = "0.37.0"
+cssparser = "0.38.0"
 precomputed-hash = "0.1.1"
 taffy = { version = "0.5", features = ["std"] }
 cosmic-text = "0.12"
@@ -37,13 +37,13 @@ wgpu = "22"
 libp2p = { version = "0.56", optional = true, features = ["kad", "request-response", "macros", "tokio", "noise", "tcp", "quic", "dns", "yamux", "serde"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
 async-trait = { version = "0.1", optional = true }
-pollster = "0.3"
+pollster = "1.0"
 bytemuck = { version = "1", features = ["derive"] }
-rquickjs = { version = "0.6", features = ["macro"] }
+rquickjs = { version = "0.14", features = ["macro"] }
 tpt-helix-wit = { path = "../tpt-helix-wit", version = "0.1.0" }
 wasmtime = "46"
 # Same version wasmtime 46 uses, so component parsing adds no new crate.
-wasmparser = "0.253"
+wasmparser = "0.263"
 sha2 = "0.10"
 url = "2"
 getrandom = "0.3"
