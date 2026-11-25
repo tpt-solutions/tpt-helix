@@ -17,6 +17,7 @@ pub mod deploy;
 pub mod eve;
 pub mod js_transform;
 pub mod optimize;
+pub mod reconstruct;
 pub mod spark;
 pub mod transpile;
 pub mod tree_sitter_discovery;

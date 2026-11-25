@@ -17,8 +17,12 @@ fn example_dir(rel: &str) -> PathBuf {
         .join(rel)
 }
 
+/// Reads a file with line endings normalized to LF. A Windows checkout may store
+/// the committed golden files with CRLF, and the generator always writes LF.
 fn read(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        .replace("\r\n", "\n")
 }
 
 /// Asserts that `dir/index.html` (with optional `dir/app.js`) is detected as
@@ -76,17 +80,17 @@ fn legacy_js_app_migration_matches_committed_output() {
     let after = example_dir("legacy-js-app/after");
     assert_eq!(
         read(&after.join("Cargo.toml")),
-        guest.cargo_toml,
+        guest.cargo_toml.replace("\r\n", "\n"),
         "Cargo.toml drifted"
     );
     assert_eq!(
         read(&after.join("src/lib.rs")),
-        guest.lib_rs,
+        guest.lib_rs.replace("\r\n", "\n"),
         "src/lib.rs drifted"
     );
     assert_eq!(
         read(&after.join("wit/helix.wit")),
-        guest.helix_wit,
+        guest.helix_wit.replace("\r\n", "\n"),
         "wit/helix.wit drifted"
     );
 }

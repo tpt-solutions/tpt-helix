@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use tpt_helix_runtime::manifest;
 use tpt_helix_cli::{
     CliError, GuestTemplate, all_required_ok, build_guest, doctor_checks, migrate_html,
-    CompileCheck, confidence_report, diff_report, manifest_report, migration_report, migration_warnings, new_guest_project,
+    CompileCheck, confidence_report, diff_report, screenshot_check, manifest_report, migration_report, migration_warnings, new_guest_project,
     new_project, parse_grants, read_manifest, render_html, run_module, write_guest_crate,
 };
 
@@ -195,9 +195,9 @@ fn real_main() -> Result<ExitCode, CliError> {
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "app".into())
             });
-            if !report && out.is_none() {
+            if !report && !confidence && !check && out.is_none() {
                 return Err(CliError(
-                    "nothing to do: pass --report and/or --out <dir>".into(),
+                    "nothing to do: pass --report, --confidence, and/or --out <dir>".into(),
                 ));
             }
             let (migration, guest) = migrate_html(&name, &html, js_src.as_deref());
@@ -227,7 +227,11 @@ fn real_main() -> Result<ExitCode, CliError> {
                 }
             }
             if confidence || check {
-                print!("{}", confidence_report(&migration, compile));
+                let screenshot = screenshot_check(&html, &migration.site, 800, 600)?;
+                print!(
+                    "{}",
+                    confidence_report(&migration, compile, Some(&screenshot))
+                );
             }
             if compile == CompileCheck::Failed {
                 return Ok(ExitCode::FAILURE);

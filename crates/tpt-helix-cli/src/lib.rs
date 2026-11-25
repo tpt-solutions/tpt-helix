@@ -254,11 +254,25 @@ pub enum CompileCheck {
 
 /// The confidence block for a migration (spec §10.3). It lists four independent
 /// facts and gives no combined score, so a reader can see which check failed.
-pub fn confidence_report(m: &OrchestratedMigration, compile: CompileCheck) -> String {
+pub fn confidence_report(
+    m: &OrchestratedMigration,
+    compile: CompileCheck,
+    screenshot: Option<&ScreenshotCheck>,
+) -> String {
     let compile_line = match compile {
         CompileCheck::NotRun => "not checked (pass --check with --out)",
         CompileCheck::Passed => "ok",
         CompileCheck::Failed => "FAILED",
+    };
+    let screenshot_line = match screenshot {
+        None => "not checked".to_string(),
+        Some(s) => format!(
+            "{:.2}% of pixels differ at {}x{} (mean channel delta {:.2})",
+            s.changed_ratio * 100.0,
+            s.width,
+            s.height,
+            s.mean_channel_delta
+        ),
     };
     format!(
         "confidence:
@@ -266,13 +280,52 @@ pub fn confidence_report(m: &OrchestratedMigration, compile: CompileCheck) -> St
   equivalence (S3): {}
   warnings: {}
   compile (wasm32): {}
+  screenshot: {}
 ",
         m.plan.detected,
         m.plan.confidence,
         if m.equivalence_ok { "ok" } else { "FAILED" },
         migration_warnings(m).len(),
-        compile_line
+        compile_line,
+        screenshot_line
     )
+}
+
+/// The pixel comparison between the original page and the page the guest
+/// rebuilds (spec §10.3).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScreenshotCheck {
+    /// Fraction of pixels that differ in any channel (0.0 to 1.0).
+    pub changed_ratio: f32,
+    /// Mean absolute per-channel difference (0 to 255).
+    pub mean_channel_delta: f32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Renders the original `html` and the page rebuilt from `site`, both at
+/// `width`x`height`, and compares them.
+pub fn screenshot_check(
+    html: &str,
+    site: &tpt_helix_migrate::transpile::TranspiledSite,
+    width: u32,
+    height: u32,
+) -> Result<ScreenshotCheck, CliError> {
+    let rebuilt = tpt_helix_migrate::reconstruct::reconstruct_html(site);
+    let original_png = render_html(html, "", width, height)?;
+    let rebuilt_png = render_html(&rebuilt, "", width, height)?;
+    let original = tpt_helix_runtime::software_raster::decode_png(&original_png)
+        .ok_or_else(|| err("could not decode the original render"))?;
+    let rebuilt = tpt_helix_runtime::software_raster::decode_png(&rebuilt_png)
+        .ok_or_else(|| err("could not decode the rebuilt render"))?;
+    let report = tpt_helix_runtime::screenshot_diff::compare(&rebuilt, &original)
+        .ok_or_else(|| err("renders differ in size"))?;
+    Ok(ScreenshotCheck {
+        changed_ratio: report.changed_ratio,
+        mean_channel_delta: report.mean_channel_delta,
+        width,
+        height,
+    })
 }
 
 /// Writes a generated guest crate under `dir`: `Cargo.toml`, `src/lib.rs`, the
