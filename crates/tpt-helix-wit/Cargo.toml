@@ -12,4 +12,4 @@ publish = false
 
 [dependencies]
 # The `macros` feature provides the `generate!` macro used in `src/lib.rs`.
-wit-bindgen = { version = "0.59", features = ["macros"] }
+wit-bindgen = { version = "0.63", features = ["macros"] }
