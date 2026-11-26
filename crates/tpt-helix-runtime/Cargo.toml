@@ -29,7 +29,7 @@ cssparser = "0.37.0"  # selectors 0.39 is built against cssparser 0.37; 0.38 spl
 precomputed-hash = "0.1.1"
 taffy = { version = "0.5", features = ["std"] }
 cosmic-text = "0.12"
-fontdb = "0.16"
+fontdb = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 resvg = "0.44"
 encoding_rs = "0.8"
