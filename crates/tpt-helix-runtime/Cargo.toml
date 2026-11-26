@@ -31,7 +31,7 @@ taffy = { version = "0.5", features = ["std"] }
 cosmic-text = "0.12"
 fontdb = "0.16"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
-resvg = "0.44"
+resvg = "0.50"
 encoding_rs = "0.8"
 wgpu = "22"
 libp2p = { version = "0.56", optional = true, features = ["kad", "request-response", "macros", "tokio", "noise", "tcp", "quic", "dns", "yamux", "serde"] }
