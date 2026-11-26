@@ -35,10 +35,14 @@ impl GuestSurface {
     /// then its ancestors' handlers, nearest first. Returns the new page if any
     /// handler ran, since a handler may change the DOM.
     pub fn click(&mut self, element: u64) -> Result<Option<String>, String> {
-        let state = &self.instance.host().state;
+        // The host guard is released before the handlers run, since each handler locks the host.
         let mut handlers = Vec::new();
-        for id in std::iter::once(element).chain(state.ancestors(element)) {
-            handlers.extend(state.click_handler_ids(id).unwrap_or_default());
+        {
+            let host = self.instance.host();
+            let state = &host.state;
+            for id in std::iter::once(element).chain(state.ancestors(element)) {
+                handlers.extend(state.click_handler_ids(id).unwrap_or_default());
+            }
         }
         if handlers.is_empty() {
             return Ok(None);
@@ -52,7 +56,7 @@ impl GuestSurface {
     }
 
     /// The host state, for inspecting what the guest stored or changed.
-    pub fn host(&self) -> &Host {
+    pub fn host(&self) -> std::sync::MutexGuard<'_, Host> {
         self.instance.host()
     }
 }

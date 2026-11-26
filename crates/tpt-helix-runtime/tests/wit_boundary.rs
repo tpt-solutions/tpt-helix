@@ -4,7 +4,7 @@
 //!
 //! The "guest" side of the boundary is whatever bytes/strings a module chooses
 //! to send. This hammers the host-side implementations — both the in-memory
-//! `RuntimeStub` (legacy/QuickJS path) and the `wasmtime` `Host` (WASM path) —
+//! `RuntimeStub` (legacy/QuickJS path) and the `tpt-wasm` `Host` (WASM path) —
 //! with adversarial inputs (unprintable bytes, control chars, very long
 //! strings, empty keys, duplicate ids, oversized payloads) and asserts the
 //! boundary never panics and stays internally consistent.

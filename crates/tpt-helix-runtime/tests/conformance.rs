@@ -1,7 +1,7 @@
 //! Conformance tests for the Helix capability interfaces.
 //!
 //! These run against `RuntimeStub` — the in-memory stand-in for the real
-//! Helix Runtime host (no `wasmtime` wired up yet). They assert that the
+//! Helix Runtime host (the guest engine is not part of these tests). They assert that the
 //! stub's behavior matches the WIT contract in `wit/helix.wit` by calling the
 //! generated host-side `Guest` trait methods directly.
 

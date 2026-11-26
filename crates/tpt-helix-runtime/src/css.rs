@@ -243,9 +243,7 @@ pub fn parse_stylesheet(source: &str) -> Vec<StyleRule> {
     let mut rules = Vec::new();
     for rule in &stylesheet.rules.0 {
         if let CssRule::Style(style_rule) = rule {
-            let selector_text = style_rule
-                .selectors
-                .to_css_string(Default::default())
+            let selector_text = LightningToCss::to_css_string(&style_rule.selectors, Default::default())
                 .unwrap_or_default();
             if let Ok(selectors) = parse_selector_list(&selector_text) {
                 rules.push(StyleRule {

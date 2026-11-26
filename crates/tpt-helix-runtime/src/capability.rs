@@ -14,9 +14,9 @@
 //!   capabilities fails with a [`CapabilityError`]; the runtime maps a revoked
 //!   or out-of-scope access to a trap/abort of the offending module.
 //!
-//! The broker is deliberately free of WIT/wasmtime types so it can be unit
+//! The broker is deliberately free of WIT/tpt-wasm types so it can be unit
 //! tested in isolation and shared by both the stateless `RuntimeStub` and the
-//! stateful wasmtime `Host`.
+//! stateful tpt-wasm `Host`.
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};

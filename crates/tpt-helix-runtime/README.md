@@ -89,9 +89,9 @@ in-process tests and should not be used for untrusted code.
 
 ## Status and known limits
 
-- The WASM host currently uses `wasmtime`. Replacing it with `tpt-wasm` is
-  blocked on that project's Component Model layer, which the guest interfaces
-  (`tpt-helix-wit`) require.
+- The WASM host runs on `tpt-wasm`, taken from its GitHub repository. There is no
+  wall-clock deadline for a guest call yet, so only the per-call step budget bounds
+  time. Guest calls run through its Component Model layer.
 - The GPU presenter (`gpu`) needs a display or a software Vulkan driver. CI uses
   the software rasterizer.
 - The JS-to-WIT bridge is a compatibility shim, not a stable API.

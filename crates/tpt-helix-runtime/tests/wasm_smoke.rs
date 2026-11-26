@@ -1,4 +1,4 @@
-//! End-to-end smoke test: load a real WASM component through wasmtime, wire the
+//! End-to-end smoke test: load a real WASM component through tpt-wasm, wire the
 //! generated WIT host-import table, instantiate it, run its `run` entry point,
 //! and assert the guest's `dom`/`storage` calls landed in the host state.
 //!
@@ -80,6 +80,7 @@ fn loads_instantiates_and_runs_hello_dom() {
     assert_eq!(host.stored("seen"), Some(b"yes".to_vec()));
 
     // Lifecycle step 4 (teardown): dropping the instance releases the guest.
+    drop(host);
     drop(instance);
 }
 

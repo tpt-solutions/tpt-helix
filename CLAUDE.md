@@ -75,7 +75,7 @@ what's built vs. planned.
   (`src/display_list.rs`) → `wgpu` command buffer → present (`src/gpu.rs`,
   with `src/software_raster.rs` as the headless/no-GPU path used by CI and
   `screenshot_diff.rs` visual-regression tests).
-- **Execution model**: WASM modules (`src/wasm.rs`, via `wasmtime`) are the
+- **Execution model**: WASM modules (`src/wasm.rs`, via `tpt-wasm`) are the
   primary app runtime. Legacy JS runs through an embedded interpreter
   (QuickJS via `rquickjs` in `src/js.rs`; Boa evaluated as an alternative,
   see `tests/boa_evaluation.rs` and `benches/js_engine_compare.rs`) bridged to

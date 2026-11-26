@@ -1,5 +1,5 @@
-//! Integration tests: `wasmtime` module load/instantiate/teardown lifecycle
-//! under *adversarial* or malformed module inputs (per the TODO "wasmtime
+//! Integration tests: `tpt-wasm` module load/instantiate/teardown lifecycle
+//! under *adversarial* or malformed module inputs (per the TODO "tpt-wasm
 //! module lifecycle tests under adversarial or malformed WASM module inputs").
 //!
 //! These assert that feeding garbage / truncated / non-component bytes into the
@@ -8,7 +8,7 @@
 
 use tpt_helix_runtime::wasm::{Engine, Module};
 
-fn loads(bytes: &[u8]) -> Result<Module, wasmtime::Error> {
+fn loads(bytes: &[u8]) -> Result<Module, tpt_helix_runtime::wasm::Error> {
     Module::load(&Engine::default(), bytes)
 }
 

@@ -25,7 +25,7 @@ html5ever = "0.39.0"
 lightningcss = "1.0.0-alpha.71"
 markup5ever_rcdom = "0.39.0"
 selectors = "0.39.0"
-cssparser = "0.38.0"
+cssparser = "0.37.0"  # selectors 0.39 is built against cssparser 0.37; 0.38 splits the ToCss trait
 precomputed-hash = "0.1.1"
 taffy = { version = "0.5", features = ["std"] }
 cosmic-text = "0.12"
@@ -41,8 +41,11 @@ pollster = "1.0"
 bytemuck = { version = "1", features = ["derive"] }
 rquickjs = { version = "0.14", features = ["macro"] }
 tpt-helix-wit = { path = "../tpt-helix-wit", version = "0.1.0" }
-wasmtime = "46"
-# Same version wasmtime 46 uses, so component parsing adds no new crate.
+# The WASM engine is tpt-wasm (MIT OR Apache-2.0), taken from its GitHub repository.
+tpt-wasm-component = { git = "https://github.com/tpt-solutions/tpt-wasm" }
+tpt-wasm-runtime = { git = "https://github.com/tpt-solutions/tpt-wasm" }
+tpt-wasm-capability = { git = "https://github.com/tpt-solutions/tpt-wasm" }
+tpt-wasm-types = { git = "https://github.com/tpt-solutions/tpt-wasm" }
 wasmparser = "0.263"
 sha2 = "0.10"
 url = "2"

@@ -82,8 +82,8 @@ grow host memory without bound:
 - Click and named-event handlers: 100,000 in total, with `MAX_EVENT_NAME_BYTES` = 32
   for event names.
 - Storage: 10,000 keys, 256-byte keys, 1 MiB values.
-- Fuel and memory: the wasmtime engine meters fuel and caps memory and tables per
-  guest.
+- Execution budget and memory: the tpt-wasm engine caps each call's execution steps
+  and caps memory and tables per guest. There is no wall-clock deadline yet.
 
 Do not rely on these numbers as stable. They live in
 `crates/tpt-helix-runtime/src/stub.rs` and `wasm.rs`.

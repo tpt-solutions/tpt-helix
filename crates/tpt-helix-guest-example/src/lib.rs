@@ -7,7 +7,7 @@
 //!
 //! It targets `wasm32-unknown-unknown` and is componentized into the smoke-test
 //! component (`crates/tpt-helix-runtime/tests/hello_dom.wasm`) the host loads
-//! through wasmtime. It also exports `dispatch`, which the host calls for each
+//! through tpt-wasm. It also exports `dispatch`, which the host calls for each
 //! handler a DOM event triggers.
 //!
 //! Build + componentize:

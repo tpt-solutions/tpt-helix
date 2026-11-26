@@ -1,5 +1,5 @@
 //! Integration tests: the Capability Broker enforced through the runtime's
-//! capability-aware `RuntimeState` (the same path the wasmtime `Host` and the
+//! capability-aware `RuntimeState` (the same path the tpt-wasm `Host` and the
 //! `RuntimeStub` delegate to). Covers grant scoping, deny, revocation/abort,
 //! and inter-module delegation.
 

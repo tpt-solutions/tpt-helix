@@ -9,7 +9,7 @@
 //! * [`host`] (submodule) — the **host** world. The Helix Runtime *exports*
 //!   the same interfaces to guests, so `wit-bindgen` emits the `Guest` traits
 //!   the runtime implements to provide each capability (our generated "Host"
-//!   traits). This avoids the wasmtime-dependent host generator while keeping
+//!   traits). This avoids the tpt-wasm-dependent host generator while keeping
 //!   the host contract generated from the same WIT source of truth.
 //!
 //! Because the package is `helix:runtime`, generated modules live under

@@ -14,8 +14,8 @@
 //! `RuntimeState` is the single source of truth for the capability behavior. It
 //! deliberately uses a *binding-neutral* representation (raw `u64` element ids,
 //! plain request/response structs) so that both the stateless `RuntimeStub`
-//! (which speaks the `wit_bindgen` `Guest` types) and the stateful wasmtime
-//! `Host` (which speaks the `wasmtime`-generated `Guest` types) can delegate to
+//! (which speaks the `wit_bindgen` `Guest` types) and the stateful tpt-wasm
+//! `Host` (which speaks the `tpt-wasm`-generated `Guest` types) can delegate to
 //! the same logic without the two binding crates' `ElementId`/`Request` types
 //! leaking into the core.
 
@@ -134,7 +134,7 @@ struct InternalElement {
 
 /// Mutable host state for the capability interfaces.
 ///
-/// Stateless-generated `Guest` impls (above) and the stateful wasmtime `Host`
+/// Stateless-generated `Guest` impls (above) and the stateful tpt-wasm `Host`
 /// both delegate to these methods after converting their own id/record types.
 #[derive(Default)]
 pub struct RuntimeState {
