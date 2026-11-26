@@ -6954,7 +6954,7 @@ dependencies = [
  "criterion",
  "cssparser",
  "encoding_rs",
- "fontdb 0.16.2",
+ "fontdb 0.22.0",
  "getrandom 0.3.4",
  "html5ever",
  "image",
