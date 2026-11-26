@@ -12,6 +12,7 @@
 
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use tpt_wasm_capability::{
     CapabilityDescriptor, CapabilityGrant, CapabilityId, CapabilitySet, Operation, Permissions,
@@ -94,9 +95,8 @@ pub struct ResourceLimits {
     pub max_table_elements: usize,
     /// Execution steps granted to each call (`run` or `dispatch`). Exhaustion traps the guest.
     pub fuel_per_call: u64,
-    /// Epoch ticks until the wall-clock deadline fires. Not enforced yet: tpt-wasm has no
-    /// wall-clock deadline, so the per-call step budget is the only time bound.
-    pub epoch_deadline_ticks: u64,
+    /// Wall-clock time one call (`run` or `dispatch`) may run before it traps.
+    pub call_deadline: Duration,
 }
 
 impl Default for ResourceLimits {
@@ -105,7 +105,7 @@ impl Default for ResourceLimits {
             max_memory_bytes: 64 * 1024 * 1024,
             max_table_elements: 10_000,
             fuel_per_call: 1_000_000_000,
-            epoch_deadline_ticks: 1,
+            call_deadline: Duration::from_secs(10),
         }
     }
 }
@@ -141,6 +141,7 @@ impl ResourceLimits {
             max_execution_steps: Some(self.fuel_per_call),
             ..EngineLimits::default()
         };
+        config.max_call_time = Some(self.call_deadline);
         config
     }
 }
@@ -842,10 +843,24 @@ mod unit_tests {
     }
 
     #[test]
+    fn the_call_deadline_and_budgets_reach_the_engine_config() {
+        let limits = ResourceLimits {
+            max_memory_bytes: 2 * 65536,
+            fuel_per_call: 7,
+            call_deadline: Duration::from_millis(250),
+            ..ResourceLimits::default()
+        };
+        let config = limits.engine_config();
+        assert_eq!(config.max_call_time, Some(Duration::from_millis(250)));
+        assert_eq!(config.limits.max_execution_steps, Some(7));
+        assert_eq!(config.limits.max_memory_pages, 2);
+    }
+
+    #[test]
     fn default_limits_are_bounded() {
         let d = ResourceLimits::default();
         assert!(d.max_memory_bytes > 0 && d.max_memory_bytes <= 256 * 1024 * 1024);
         assert!(d.fuel_per_call > 0);
-        assert!(d.epoch_deadline_ticks > 0);
+        assert!(d.call_deadline > Duration::ZERO);
     }
 }

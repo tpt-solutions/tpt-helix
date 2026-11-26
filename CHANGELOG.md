@@ -10,7 +10,9 @@ All notable changes to this project are documented here. The format follows
 - The WASM host runs on `tpt-wasm` (MIT OR Apache-2.0), taken from its GitHub
   repository, instead of `wasmtime` (Apache-2.0 WITH LLVM-exception only). The
   per-call budget is now tpt-wasm's execution-step budget, and the memory cap is
-  applied in 64 KiB pages. A wall-clock epoch deadline is not enforced yet.
+  applied in 64 KiB pages. Each call also has a wall-clock deadline,
+  `ResourceLimits::call_deadline` (10 seconds by default), which replaces the
+  wasmtime epoch placeholder.
 - `cssparser` is pinned to 0.37 to match `selectors` 0.39; 0.38 splits the `ToCss`
   trait the selector code relies on.
 
